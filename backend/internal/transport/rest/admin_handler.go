@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -398,7 +399,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 
 	// Commit transaction
 	if err := tx.Commit(ctx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": fmt.Sprintf("Failed to commit resolution transaction: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to commit resolution transaction"})
 		return
 	}
 
@@ -599,9 +600,10 @@ func (h *AdminHandler) HandleCreateMarket(c *gin.Context) {
 		slug, req.Title, req.Description, req.Category, imageURL, req.ResolutionSource, resolutionDate,
 	).Scan(&marketID, &createdAt)
 	if err != nil {
+		log.Printf("[Admin CreateMarket] failed to insert market record: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "database_error",
-			"message": fmt.Sprintf("Failed to insert market record: %v", err),
+			"message": "Failed to insert market record",
 		})
 		return
 	}
@@ -611,9 +613,10 @@ func (h *AdminHandler) HandleCreateMarket(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5, 0, 0);
 	`
 	if _, err := tx.Exec(ctx, queryPool, marketID, reserveYes, reserveNo, collateral, kInvariant); err != nil {
+		log.Printf("[Admin CreateMarket] failed to insert liquidity pool: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "database_error",
-			"message": fmt.Sprintf("Failed to insert liquidity pool: %v", err),
+			"message": "Failed to insert liquidity pool",
 		})
 		return
 	}

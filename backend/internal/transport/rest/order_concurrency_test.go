@@ -113,7 +113,6 @@ func TestConcurrency_DoubleSpendAttack(t *testing.T) {
 			reqOrder.Header.Set("Content-Type", "application/json")
 			reqOrder.Header.Set("Authorization", "Bearer "+token)
 			reqOrder.Header.Set("Idempotency-Key", fmt.Sprintf("double-spend-key-%d-%s", idx, uuid.New().String()))
-			reqOrder.Header.Set("X-Bypass-Rate-Limit", "test-bypass")
 
 			router.ServeHTTP(wOrder, reqOrder)
 
@@ -223,7 +222,6 @@ func TestConcurrency_HighContentionPool(t *testing.T) {
 	for i := 0; i < concurrency; i++ {
 		wAuth := httptest.NewRecorder()
 		reqAuth, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/guest", nil)
-		reqAuth.Header.Set("X-Bypass-Rate-Limit", "test-bypass")
 		router.ServeHTTP(wAuth, reqAuth)
 		if wAuth.Code != http.StatusCreated {
 			t.Fatalf("Failed to create user %d: %d", i, wAuth.Code)
@@ -260,7 +258,6 @@ func TestConcurrency_HighContentionPool(t *testing.T) {
 			reqOrder.Header.Set("Content-Type", "application/json")
 			reqOrder.Header.Set("Authorization", "Bearer "+tokens[idx])
 			reqOrder.Header.Set("Idempotency-Key", fmt.Sprintf("contention-order-%d-%s", idx, uuid.New().String()))
-			reqOrder.Header.Set("X-Bypass-Rate-Limit", "test-bypass")
 
 			router.ServeHTTP(wOrder, reqOrder)
 

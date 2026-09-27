@@ -14,17 +14,27 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-// TestMetricsEndpoint verifies the Prometheus telemetry endpoint.
+// TestMetricsEndpoint verifies the Prometheus telemetry endpoint requires admin auth.
 func TestMetricsEndpoint(t *testing.T) {
-	pool, _, router := getTestEnv(t)
+	pool, cfg, router := getTestEnv(t)
 	defer pool.Close()
 
+	// Unauthenticated request must be rejected
+	wUnauthed := httptest.NewRecorder()
+	reqUnauthed, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
+	router.ServeHTTP(wUnauthed, reqUnauthed)
+	if wUnauthed.Code != http.StatusUnauthorized && wUnauthed.Code != http.StatusForbidden {
+		t.Errorf("Expected /metrics to reject unauthenticated request, got %d", wUnauthed.Code)
+	}
+
+	// Authenticated request with admin token must succeed
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
+	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("Expected /metrics status 200, got %d. Body: %s", w.Code, w.Body.String())
+		t.Fatalf("Expected /metrics status 200 with admin token, got %d. Body: %s", w.Code, w.Body.String())
 	}
 
 	body := w.Body.String()
@@ -64,6 +74,27 @@ func TestAdminResolveUnauthorized(t *testing.T) {
 
 	if w.Code != http.StatusForbidden {
 		t.Errorf("Expected 403 Forbidden with invalid token, got %d", w.Code)
+	}
+
+	// 3. With regular user bearer token -> 403 Forbidden
+	wGuest := httptest.NewRecorder()
+	reqGuest, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/guest", nil)
+	router.ServeHTTP(wGuest, reqGuest)
+	var authResp struct {
+		Token string `json:"token"`
+	}
+	_ = json.Unmarshal(wGuest.Body.Bytes(), &authResp)
+	if authResp.Token != "" {
+		wUser := httptest.NewRecorder()
+		reqUser, _ := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(`{"winning_outcome":"YES","oracle_proof":"test"}`))
+		reqUser.Header.Set("Content-Type", "application/json")
+		reqUser.Header.Set("Authorization", "Bearer "+authResp.Token)
+		reqUser.Header.Set("Idempotency-Key", uuid.New().String())
+		router.ServeHTTP(wUser, reqUser)
+
+		if wUser.Code != http.StatusForbidden {
+			t.Errorf("Expected 403 Forbidden with user JWT on admin endpoint, got %d", wUser.Code)
+		}
 	}
 }
 

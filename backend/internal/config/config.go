@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -19,10 +20,11 @@ type Config struct {
 	GoogleClientID     string
 	GoogleClientSecret string
 	GoogleRedirectURI  string
+	DisableRateLimits  bool
 }
 
 // Load reads configuration from environment variables and local .env files.
-// It searches both current directory and workspace root for .env.
+// It searches both current directory and parent dirs for .env.
 func Load() (*Config, error) {
 	// Attempt to load from potential .env locations (current dir, parent dir, workspace root)
 	for _, envPath := range []string{".env", "../.env", "../../.env", "../../../.env", "../../../../.env", "../../../../../.env"} {
@@ -65,9 +67,10 @@ func Load() (*Config, error) {
 		if isDevOrLocal {
 			jwtSecret = "bayesmarket-development-hmac-sha256-default-secret-key-32b"
 		} else {
-			log.Printf("[WARN] Missing JWT_SECRET in %s environment! Using default fallback. Configure JWT_SECRET in production settings.\n", env)
-			jwtSecret = "bayesmarket-development-hmac-sha256-default-secret-key-32b"
+			return nil, fmt.Errorf("JWT_SECRET environment variable is required in %s environment (minimum 32 characters)", env)
 		}
+	} else if !isDevOrLocal && len(jwtSecret) < 32 {
+		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters long in %s environment", env)
 	}
 
 	adminToken := os.Getenv("ADMIN_TOKEN")
@@ -75,9 +78,10 @@ func Load() (*Config, error) {
 		if isDevOrLocal {
 			adminToken = "bayesmarket-admin-secret-token"
 		} else {
-			log.Printf("[WARN] Missing ADMIN_TOKEN in %s environment! Using default fallback. Configure ADMIN_TOKEN in production settings.\n", env)
-			adminToken = "bayesmarket-admin-secret-token"
+			return nil, fmt.Errorf("ADMIN_TOKEN environment variable is required in %s environment (minimum 16 characters)", env)
 		}
+	} else if !isDevOrLocal && len(adminToken) < 16 {
+		return nil, fmt.Errorf("ADMIN_TOKEN must be at least 16 characters long in %s environment", env)
 	}
 
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")

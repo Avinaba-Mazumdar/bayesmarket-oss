@@ -2,7 +2,9 @@ package rest
 
 import (
 	"context"
+	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -77,9 +79,29 @@ type QuoteRequest struct {
 func (h *MarketHandler) HandleGetMarkets(c *gin.Context) {
 	category := strings.ToLower(strings.TrimSpace(c.Query("category")))
 
-	// Fast path: check in-memory cache
-	if h.cache != nil {
+	limit := 50
+	if l := c.Query("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
+			if parsed > 100 {
+				parsed = 100
+			}
+			limit = parsed
+		}
+	}
+
+	offset := 0
+	if o := c.Query("offset"); o != "" {
+		if parsed, err := strconv.Atoi(o); err == nil && parsed >= 0 {
+			offset = parsed
+		}
+	}
+
+	// Fast path: check in-memory cache when not paginating offset
+	if offset == 0 && h.cache != nil {
 		if cached, ok := h.cache.GetMarkets(category); ok {
+			if len(cached) > limit {
+				cached = cached[:limit]
+			}
 			c.JSON(http.StatusOK, cached)
 			return
 		}
@@ -95,9 +117,10 @@ func (h *MarketHandler) HandleGetMarkets(c *gin.Context) {
 		FROM markets m
 		JOIN liquidity_pools p ON p.market_id = m.id
 		WHERE ($1 = '' OR m.category = $1) AND m.status = 'active'
-		ORDER BY m.created_at ASC;
+		ORDER BY m.created_at ASC
+		LIMIT $2 OFFSET $3;
 	`
-	rows, err := h.pool.Query(ctx, query, category)
+	rows, err := h.pool.Query(ctx, query, category, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "database_error",
@@ -324,19 +347,30 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 		defer cancel()
 
 		query := `
-			SELECT m.id, p.reserve_yes, p.reserve_no, p.collateral_reserve
+			SELECT m.id, m.status, m.resolution_date, p.reserve_yes, p.reserve_no, p.collateral_reserve
 			FROM markets m
 			JOIN liquidity_pools p ON p.market_id = m.id
 			WHERE m.id::text = $1 OR m.slug = $1;
 		`
+		var marketStatus string
+		var resDate time.Time
 		var rYes, rNo, collateral decimal.Decimal
-		err := h.pool.QueryRow(ctx, query, marketIDParam).Scan(&marketUUID, &rYes, &rNo, &collateral)
+		err := h.pool.QueryRow(ctx, query, marketIDParam).Scan(&marketUUID, &marketStatus, &resDate, &rYes, &rNo, &collateral)
 		if err != nil {
 			if err == pgx.ErrNoRows {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "Market not found"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to fetch market reserves"})
+			return
+		}
+
+		if marketStatus != "active" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "market_not_active", "message": "Market is not open for trading"})
+			return
+		}
+		if time.Now().UTC().After(resDate) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "market_expired", "message": "Market trading has closed: resolution date has passed"})
 			return
 		}
 
@@ -365,7 +399,8 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 
 		quote, err := amm.CalculateCompleteSetBuy(deposit, outcome, poolReserves)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "amm_error", "message": err.Error()})
+			log.Printf("[AMM Buy Quote] calculation error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "amm_error", "message": "Invalid trade parameters for buy quote"})
 			return
 		}
 
@@ -397,7 +432,8 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 
 		quote, err := amm.CalculateCompleteSetSell(shares, outcome, poolReserves)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "amm_error", "message": err.Error()})
+			log.Printf("[AMM Sell Quote] calculation error: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "amm_error", "message": "Invalid trade parameters for sell quote"})
 			return
 		}
 

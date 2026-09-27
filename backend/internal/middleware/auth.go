@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"errors"
 	"net/http"
 	"strings"
@@ -161,8 +162,6 @@ func GetClaims(c *gin.Context) (*AuthClaims, bool) {
 // RequireAdminAuth validates that the request contains an authorized administrative credential.
 // It accepts either a static admin token (configured via ADMIN_TOKEN) or a valid non-guest administrative JWT.
 func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
-	secretBytes := []byte(jwtSecret)
-
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -184,26 +183,8 @@ func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
 
 		tokenString := strings.TrimSpace(parts[1])
 
-		// 1. Direct match with configured AdminToken
-		if adminToken != "" && tokenString == adminToken {
-			c.Next()
-			return
-		}
-
-		// 2. JWT evaluation with non-guest administrative claims
-		claims := &GuestClaims{}
-		token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-				return nil, errors.New("unexpected signing method")
-			}
-			return secretBytes, nil
-		})
-
-		if err == nil && token.Valid && !claims.IsGuest {
-			if parsedID, err := uuid.Parse(claims.UserID); err == nil {
-				c.Set(CtxUserIDKey, parsedID)
-				c.Set(CtxIsGuestKey, false)
-			}
+		// Direct match with configured AdminToken (constant-time comparison against timing attacks)
+		if adminToken != "" && subtle.ConstantTimeCompare([]byte(tokenString), []byte(adminToken)) == 1 {
 			c.Next()
 			return
 		}

@@ -37,6 +37,9 @@ type Client struct {
 
 	// marketID this client is subscribed to ("" or "all" for global broadcast).
 	marketID string
+
+	// onClose optional cleanup callback when connection terminates.
+	onClose func()
 }
 
 // NewClient constructs a new WebSocket client instance.
@@ -49,12 +52,20 @@ func NewClient(hub *Hub, conn *websocket.Conn, marketID string) *Client {
 	}
 }
 
+// SetOnClose registers a callback invoked when the client disconnects.
+func (c *Client) SetOnClose(fn func()) {
+	c.onClose = fn
+}
+
 // readPump pumps messages from the websocket connection to the hub.
 // The application runs readPump in a per-connection goroutine.
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.unregister <- c
 		c.conn.Close()
+		if c.onClose != nil {
+			c.onClose()
+		}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)

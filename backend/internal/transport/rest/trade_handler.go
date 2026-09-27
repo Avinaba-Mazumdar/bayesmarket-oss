@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -193,7 +194,7 @@ func (h *TradeHandler) HandlePlaceOrder(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "execution_failed", "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "execution_failed", "message": "Order execution failed. Please retry."})
 		return
 	}
 
@@ -236,7 +237,8 @@ func (h *TradeHandler) executeOrderTx(
 	// Step 4: Mathematical AMM Execution
 	quote, err := amm.CalculateCompleteSetBuy(amount, outcome, poolReserves)
 	if err != nil {
-		return nil, &AppError{StatusCode: http.StatusBadRequest, ErrorCode: "amm_error", Message: err.Error()}
+		log.Printf("[AMM Buy Order] calculation error: %v", err)
+		return nil, &AppError{StatusCode: http.StatusBadRequest, ErrorCode: "amm_error", Message: "Invalid trade parameters for buy order"}
 	}
 
 	if quote.PriceImpactPct.GreaterThan(maxSlippage) {
@@ -445,7 +447,7 @@ func (h *TradeHandler) HandleCashOut(c *gin.Context) {
 			return
 		}
 
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "execution_failed", "message": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "execution_failed", "message": "Cashout execution failed. Please retry."})
 		return
 	}
 
@@ -495,7 +497,8 @@ func (h *TradeHandler) executeCashOutTx(
 	// Step 5: AMM Complete Set Sell Calculation
 	quote, err := amm.CalculateCompleteSetSell(shares, outcome, poolReserves)
 	if err != nil {
-		return nil, &AppError{StatusCode: http.StatusBadRequest, ErrorCode: "amm_error", Message: err.Error()}
+		log.Printf("[AMM Sell Order] calculation error: %v", err)
+		return nil, &AppError{StatusCode: http.StatusBadRequest, ErrorCode: "amm_error", Message: "Invalid trade parameters for cashout"}
 	}
 
 	if minPayout.GreaterThan(decimal.Zero) && quote.PayoutUSDC.LessThan(minPayout) {
@@ -631,8 +634,9 @@ func lockAndVerifyUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, 
 func lockAndVerifyActiveMarket(ctx context.Context, tx pgx.Tx, marketIDParam string) (uuid.UUID, error) {
 	var marketUUID uuid.UUID
 	var marketStatus string
-	query := `SELECT id, status FROM markets WHERE id::text = $1 OR slug = $1 FOR UPDATE;`
-	err := tx.QueryRow(ctx, query, marketIDParam).Scan(&marketUUID, &marketStatus)
+	var resolutionDate time.Time
+	query := `SELECT id, status, resolution_date FROM markets WHERE id::text = $1 OR slug = $1 FOR UPDATE;`
+	err := tx.QueryRow(ctx, query, marketIDParam).Scan(&marketUUID, &marketStatus, &resolutionDate)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, &AppError{StatusCode: http.StatusNotFound, ErrorCode: "not_found", Message: "Market not found"}
@@ -644,6 +648,13 @@ func lockAndVerifyActiveMarket(ctx context.Context, tx pgx.Tx, marketIDParam str
 			StatusCode: http.StatusBadRequest,
 			ErrorCode:  "market_not_active",
 			Message:    "Market is not open for trading",
+		}
+	}
+	if time.Now().UTC().After(resolutionDate) {
+		return uuid.Nil, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "market_expired",
+			Message:    "Market trading has closed: resolution date has passed",
 		}
 	}
 	return marketUUID, nil

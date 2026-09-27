@@ -25,15 +25,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Printf("[WARN] Configuration load warning: %v\n", err)
-	}
-	if cfg == nil {
-		cfg = &config.Config{
-			ServerPort:  "8080",
-			Environment: "development",
-			JWTSecret:   "bayesmarket-development-hmac-sha256-default-secret-key-32b",
-			AdminToken:  "bayesmarket-admin-secret-token",
-		}
+		log.Fatalf("[FATAL] Configuration error: %v\n", err)
 	}
 
 	port := os.Getenv("PORT")
@@ -82,7 +74,7 @@ func main() {
 			// Check if markets need seeding (auto-seed if empty or requested via env)
 			var marketCount int
 			_ = dbPool.QueryRow(ctx, "SELECT COUNT(*) FROM markets").Scan(&marketCount)
-			if marketCount == 0 || os.Getenv("AUTO_SEED") == "true" {
+			if (marketCount == 0 && os.Getenv("AUTO_SEED") != "false") || os.Getenv("AUTO_SEED") == "true" {
 				log.Println("[INFO] Auto-seeding initial prediction markets...")
 				if err := database.SeedInitialMarkets(ctx, dbPool); err != nil {
 					log.Printf("[WARN] Auto-seeding warning: %v\n", err)

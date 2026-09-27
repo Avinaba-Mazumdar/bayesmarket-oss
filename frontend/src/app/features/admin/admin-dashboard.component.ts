@@ -15,7 +15,6 @@ import { TextareaComponent } from '../../shared/components/textarea/textarea.com
 import { BrandIconComponent } from '../../shared/components/brand-icon/brand-icon.component';
 
 const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
-const DEFAULT_DEV_ADMIN_TOKEN = 'bayesmarket-admin-secret-token';
 
 @Component({
     selector: 'app-admin-dashboard',
@@ -97,8 +96,7 @@ const DEFAULT_DEV_ADMIN_TOKEN = 'bayesmarket-admin-secret-token';
 
                             @if (isDev()) {
                                 <div class="dev-hint-row">
-                                    <span class="hint-text">Local Development:</span>
-                                    <button type="button" class="hint-fill-btn" (click)="fillDevToken()">Use Default Dev Key</button>
+                                    <span class="hint-text">Local Dev: Enter ADMIN_TOKEN configured in your server .env</span>
                                 </div>
                             }
 
@@ -1056,11 +1054,6 @@ export class AdminDashboardComponent implements OnInit {
         const m = String(future.getMonth() + 1).padStart(2, '0');
         const d = String(future.getDate()).padStart(2, '0');
         this.resolutionDateInput.set(`${y}-${m}-${d}T23:59`);
-    }
-
-    fillDevToken(): void {
-        if (!this.isDev()) return;
-        this.tokenInput.set(DEFAULT_DEV_ADMIN_TOKEN);
     }
 
     verifyAndUnlock(tokenOverride?: string): void {

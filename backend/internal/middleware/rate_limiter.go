@@ -22,6 +22,14 @@ type RateLimiter struct {
 	rateLimit     rate.Limit
 	burst         int
 	retryAfterSec time.Duration
+	disabled      bool
+}
+
+// SetDisabled programmatically enables or disables rate limit enforcement (useful in testing).
+func (rl *RateLimiter) SetDisabled(disabled bool) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	rl.disabled = disabled
 }
 
 // NewRateLimiter creates an in-memory token-bucket rate limiter with automatic stale key eviction.
@@ -74,7 +82,10 @@ func (rl *RateLimiter) cleanupRoutine(cleanupInterval time.Duration) {
 // LimitByIP enforces token-bucket rate limits per client IP.
 func (rl *RateLimiter) LimitByIP() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if gin.Mode() == gin.TestMode && c.GetHeader("X-Bypass-Rate-Limit") == "test-bypass" {
+		rl.mu.RLock()
+		disabled := rl.disabled
+		rl.mu.RUnlock()
+		if disabled {
 			c.Next()
 			return
 		}
@@ -100,7 +111,10 @@ func (rl *RateLimiter) LimitByIP() gin.HandlerFunc {
 // LimitByClientOrUser enforces rate limits per User ID if authenticated, falling back to IP.
 func (rl *RateLimiter) LimitByClientOrUser() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if gin.Mode() == gin.TestMode && c.GetHeader("X-Bypass-Rate-Limit") == "test-bypass" {
+		rl.mu.RLock()
+		disabled := rl.disabled
+		rl.mu.RUnlock()
+		if disabled {
 			c.Next()
 			return
 		}

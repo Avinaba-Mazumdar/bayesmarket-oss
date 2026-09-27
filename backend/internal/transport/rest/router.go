@@ -53,6 +53,46 @@ func gzipMiddleware() gin.HandlerFunc {
 	}
 }
 
+// maxBodySizeMiddleware restricts incoming HTTP request bodies to prevent DoS via payload exhaustion.
+func maxBodySizeMiddleware(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
+}
+
+func parseAllowedOrigins(corsOrigin string) []string {
+	var origins []string
+	for _, o := range strings.Split(corsOrigin, ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			origins = append(origins, o)
+		}
+	}
+	return origins
+}
+
+func isOriginAllowed(origin string, allowedOrigins []string, isDev bool) bool {
+	if origin == "" {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" || strings.EqualFold(origin, allowed) {
+			return true
+		}
+	}
+	if isDev {
+		lower := strings.ToLower(origin)
+		if strings.HasPrefix(lower, "http://localhost:") || lower == "http://localhost" ||
+			strings.HasPrefix(lower, "http://127.0.0.1:") || lower == "http://127.0.0.1" {
+			return true
+		}
+	}
+	return false
+}
+
 // SetupRouter constructs and configures the Gin HTTP engine with all REST routes, WebSocket endpoints, and middleware.
 func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin.Engine {
 	var hub *ws.Hub
@@ -60,28 +100,52 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		hub = hubOpt[0]
 	}
 
-	router := gin.New()
-	router.Use(gin.Logger(), gin.Recovery(), gzipMiddleware())
+	isDevOrLocal := true
+	corsOrigin := "*"
+	jwtSecret := ""
+	adminToken := ""
 
-	// CORS Middleware
+	if cfg != nil {
+		isDevOrLocal = cfg.IsDevOrLocal()
+		if cfg.CORSOrigin != "" {
+			corsOrigin = cfg.CORSOrigin
+		}
+		jwtSecret = cfg.JWTSecret
+		adminToken = cfg.AdminToken
+	}
+
+	if jwtSecret == "" && isDevOrLocal {
+		jwtSecret = "bayesmarket-development-hmac-sha256-default-secret-key-32b"
+	}
+
+	router := gin.New()
+	router.Use(
+		gin.Logger(),
+		gin.Recovery(),
+		gzipMiddleware(),
+		maxBodySizeMiddleware(1<<20), // 1MB payload ceiling
+	)
+
+	// Strict CORS Middleware
+	allowedOrigins := parseAllowedOrigins(corsOrigin)
 	router.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		allowedOrigin := ""
-		if cfg != nil {
-			allowedOrigin = cfg.CORSOrigin
-		}
-		if allowedOrigin == "" || allowedOrigin == "*" || origin == allowedOrigin {
+
+		if origin != "" && isOriginAllowed(origin, allowedOrigins, isDevOrLocal) {
 			c.Header("Access-Control-Allow-Origin", origin)
-		} else {
-			c.Header("Access-Control-Allow-Origin", allowedOrigin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Vary", "Origin")
 		}
 
 		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, Idempotency-Key, Accept")
+		c.Header("Access-Control-Allow-Headers", "Origin, Content-Type, Authorization, Idempotency-Key, Accept, X-Requested-With")
 		c.Header("Access-Control-Expose-Headers", "Retry-After, Content-Length")
-		c.Header("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == "OPTIONS" {
+			if origin != "" && !isOriginAllowed(origin, allowedOrigins, isDevOrLocal) {
+				c.AbortWithStatus(http.StatusForbidden)
+				return
+			}
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
@@ -93,16 +157,10 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	publicReadLimiter := middleware.NewPublicReadLimiter()
 	actionLimiter := middleware.NewActionLimiter()
 	quoteLimiter := middleware.NewQuoteLimiter()
-
-	jwtSecret := "bayesmarket-development-hmac-sha256-default-secret-key-32b"
-	corsOrigin := "*"
-	if cfg != nil {
-		if cfg.JWTSecret != "" {
-			jwtSecret = cfg.JWTSecret
-		}
-		if cfg.CORSOrigin != "" {
-			corsOrigin = cfg.CORSOrigin
-		}
+	if cfg != nil && cfg.DisableRateLimits {
+		publicReadLimiter.SetDisabled(true)
+		actionLimiter.SetDisabled(true)
+		quoteLimiter.SetDisabled(true)
 	}
 
 	// In-memory read-through cache (5-second TTL, event-invalidated on trades/settlements)
@@ -118,14 +176,9 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	adminHandler := NewAdminHandler(pool, hub)
 	adminHandler.SetMarketCache(marketCache)
 
-	adminToken := ""
-	if cfg != nil {
-		adminToken = cfg.AdminToken
-	}
-
 	// WebSocket Endpoints
 	if hub != nil {
-		wsHandler := ws.NewWSHandler(hub, corsOrigin)
+		wsHandler := ws.NewWSHandler(hub, corsOrigin, isDevOrLocal)
 		router.GET("/ws/markets/:id", wsHandler.HandleMarketWS)
 		router.GET("/ws/markets", wsHandler.HandleGlobalWS)
 		router.GET("/ws", wsHandler.HandleGlobalWS)
@@ -155,8 +208,8 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	router.HEAD("/healthz", healthHandler)
 	router.HEAD("/health", healthHandler)
 
-	// Prometheus metrics endpoint (unlimited)
-	router.GET("/metrics", func(c *gin.Context) {
+	// Prometheus metrics endpoint (requires Admin token/auth)
+	router.GET("/metrics", middleware.RequireAdminAuth(adminToken, jwtSecret), func(c *gin.Context) {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 

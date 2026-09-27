@@ -17,6 +17,8 @@
         "test:backend": "cd backend && go test -v ./...",
         "test:amm": "cd backend && go test -v ./internal/amm/...",
         "verify:db": "cd backend && go run cmd/verify-db/main.go",
+        "db:clear-markets": "cd backend && go run cmd/clear-markets/main.go",
+        "db:seed": "cd backend && go run cmd/api/main.go -seed",
         "format:go": "cd backend && go fmt ./...",
         "lint:format": "npx prettier --check \"**/*.{json,md,css,html,ts}\"",
         "format": "npx prettier --write \"**/*.{json,md,css,html,ts}\" && cd backend && go fmt ./..."

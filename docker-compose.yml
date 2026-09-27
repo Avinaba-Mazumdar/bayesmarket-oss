@@ -1,3 +1,4 @@
+# NOTE: For production deployments, override default passwords, JWT_SECRET, and ADMIN_TOKEN using environment variables or a .env file.
 services:
     postgres:
         image: postgres:17-alpine

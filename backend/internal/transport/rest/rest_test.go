@@ -35,6 +35,7 @@ func getTestEnv(t *testing.T) (*pgxpool.Pool, *config.Config, *gin.Engine) {
 		t.Skipf("Skipping live REST tests: cannot connect to Neon: %v", err)
 	}
 
+	cfg.DisableRateLimits = true
 	router := rest.SetupRouter(pool, cfg)
 	return pool, cfg, router
 }
@@ -127,6 +128,21 @@ func TestMarketDiscoveryEndpoints(t *testing.T) {
 	}
 	if m.ProbabilityYes == "" || m.ProbabilityNo == "" {
 		t.Errorf("Missing implied probabilities: %+v", m)
+	}
+
+	// GET /api/v1/markets with pagination limit=2
+	wPaged := httptest.NewRecorder()
+	reqPaged, _ := http.NewRequest(http.MethodGet, "/api/v1/markets?limit=2&offset=0", nil)
+	router.ServeHTTP(wPaged, reqPaged)
+	if wPaged.Code != http.StatusOK {
+		t.Fatalf("Expected status 200 for paged markets, got %d", wPaged.Code)
+	}
+	var pagedMarkets []rest.MarketSummaryResponse
+	if err := json.Unmarshal(wPaged.Body.Bytes(), &pagedMarkets); err != nil {
+		t.Fatalf("Failed to unmarshal paged markets: %v", err)
+	}
+	if len(pagedMarkets) != 2 {
+		t.Errorf("Expected exactly 2 markets with limit=2, got %d", len(pagedMarkets))
 	}
 
 	// GET /api/v1/markets/:id by Slug

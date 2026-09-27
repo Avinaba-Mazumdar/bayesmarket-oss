@@ -22,8 +22,16 @@ func ParseOutcome(raw string) (amm.Outcome, *AppError) {
 	return amm.Outcome(trimmed), nil
 }
 
-// ParsePositiveDecimal parses a string into a strictly positive decimal.Decimal.
+// MaxTradeAmountUSDC defines the maximum order or collateral amount allowed per transaction (1,000,000 USDC).
+var MaxTradeAmountUSDC = decimal.NewFromInt(1_000_000)
+
+// ParsePositiveDecimal parses a string into a strictly positive decimal.Decimal bounded by MaxTradeAmountUSDC.
 func ParsePositiveDecimal(raw string, fieldName string) (decimal.Decimal, *AppError) {
+	return ParseBoundedPositiveDecimal(raw, fieldName, MaxTradeAmountUSDC)
+}
+
+// ParseBoundedPositiveDecimal parses a string into a strictly positive decimal.Decimal and enforces an upper bound.
+func ParseBoundedPositiveDecimal(raw string, fieldName string, maxVal decimal.Decimal) (decimal.Decimal, *AppError) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return decimal.Zero, &AppError{
@@ -41,6 +49,15 @@ func ParsePositiveDecimal(raw string, fieldName string) (decimal.Decimal, *AppEr
 			Message:    fmt.Sprintf("%s must be a positive decimal string", fieldName),
 		}
 	}
+
+	if !maxVal.IsZero() && val.GreaterThan(maxVal) {
+		return decimal.Zero, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "invalid_" + fieldName,
+			Message:    fmt.Sprintf("%s exceeds maximum allowed limit of %s", fieldName, maxVal.StringFixed(2)),
+		}
+	}
+
 	return val, nil
 }
 
@@ -59,5 +76,14 @@ func ParseSlippagePct(raw string, defaultPct decimal.Decimal) (decimal.Decimal, 
 			Message:    "max_slippage_pct must be non-negative",
 		}
 	}
+
+	if val.GreaterThan(decimal.NewFromInt(100)) {
+		return decimal.Zero, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "invalid_slippage",
+			Message:    "max_slippage_pct cannot exceed 100%",
+		}
+	}
+
 	return val, nil
 }

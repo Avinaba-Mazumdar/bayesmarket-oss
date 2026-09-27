@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -133,6 +134,24 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		cashBalance = initialBalance
 		createdAt = time.Now().UTC()
 	} else {
+		// Enforce daily cap on guest account creations per IP to prevent sybil wallet abuse
+		dailyCap := 5
+		if h.isDevOrLocal {
+			dailyCap = 100
+		}
+		var guestCount int
+		countQuery := `
+			SELECT COUNT(*) FROM users
+			WHERE is_guest = true AND ip_address = $1 AND created_at > NOW() - INTERVAL '24 hours';
+		`
+		if err := h.pool.QueryRow(ctx, countQuery, clientIP).Scan(&guestCount); err == nil && guestCount >= dailyCap {
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error":   "guest_limit_exceeded",
+				"message": "Maximum guest accounts created for this IP address today. Please sign in or try again later.",
+			})
+			return
+		}
+
 		query := `
 			INSERT INTO users (is_guest, cash_balance, auth_provider, ip_address)
 			VALUES (true, $1, 'guest', $2)
@@ -239,7 +258,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error":   "invalid_token",
-				"message": fmt.Sprintf("Failed to verify Google token: %v", err),
+				"message": "Failed to verify Google identity token",
 			})
 			return
 		}
@@ -261,8 +280,8 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 	user, err := h.upsertGoogleUser(ctx, c, googleID, email, name, avatarURL)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "database_error",
-			"message": fmt.Sprintf("Failed to authenticate user: %v", err),
+			"error":   "auth_error",
+			"message": "Failed to authenticate user profile",
 		})
 		return
 	}
@@ -343,7 +362,7 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 	if h.googleClientID == "" || strings.HasPrefix(req.Code, "mock-") {
 		user, err := h.upsertGoogleUser(ctx, c, "google-mock-cb", "oauth.trader@bayesmarket.com", "OAuth Trader", "")
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to create user session"})
 			return
 		}
 		tokenString, _ := h.generateJWT(user.ID, false, "oauth.trader@bayesmarket.com", "OAuth Trader", "", "google")
@@ -393,9 +412,10 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 
 	user, err := h.upsertGoogleUser(ctx, c, tokenInfo.Sub, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture)
 	if err != nil {
+		log.Printf("[Auth GoogleLogin] user profile upsert error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "database_error",
-			"message": err.Error(),
+			"message": "Failed to create or update user profile",
 		})
 		return
 	}
@@ -687,7 +707,7 @@ func (h *AuthHandler) generateJWT(userID string, isGuest bool, email string, nam
 			Issuer:    "bayesmarket",
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(30 * 24 * time.Hour)), // 30-day session
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(24 * time.Hour)), // 24-hour session
 		},
 	}
 
