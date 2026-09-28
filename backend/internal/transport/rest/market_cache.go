@@ -82,10 +82,15 @@ func (c *MarketCache) GetMarket(idOrSlug string) (*MarketSummaryResponse, *amm.P
 		return nil, nil, nil, false
 	}
 
-	summaryCopy := item.summary
+	var summaryPtr *MarketSummaryResponse
+	if item.summary.Title != "" {
+		summaryCopy := item.summary
+		summaryPtr = &summaryCopy
+	}
+
 	reservesCopy := item.reserves
 	uuidCopy := item.marketUUID
-	return &summaryCopy, &reservesCopy, &uuidCopy, true
+	return summaryPtr, &reservesCopy, &uuidCopy, true
 }
 
 // SetMarket stores individual market details and pool reserves by both ID and Slug.
@@ -109,6 +114,49 @@ func (c *MarketCache) SetMarket(id, slug string, summary MarketSummaryResponse, 
 	if slug != "" {
 		c.items[slug] = item
 	}
+}
+
+// SetReserves updates or initializes pool reserves without overwriting existing summary metadata.
+func (c *MarketCache) SetReserves(id, slug string, reserves amm.PoolReserves, marketUUID uuid.UUID) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	expiresAt := time.Now().Add(c.defaultTTL)
+
+	var summary MarketSummaryResponse
+	if existing, ok := c.items[id]; ok && existing.summary.Title != "" {
+		summary = existing.summary
+	} else if existing, ok := c.items[slug]; ok && existing.summary.Title != "" {
+		summary = existing.summary
+	}
+
+	item := &cachedMarketItem{
+		marketUUID: marketUUID,
+		id:         id,
+		slug:       slug,
+		summary:    summary,
+		reserves:   reserves,
+		expiresAt:  expiresAt,
+	}
+
+	if id != "" {
+		c.items[id] = item
+	}
+	if slug != "" {
+		c.items[slug] = item
+	}
+}
+
+// GetMarketUUID returns the canonical UUID for a given market ID or slug if cached.
+func (c *MarketCache) GetMarketUUID(idOrSlug string) (uuid.UUID, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	key := strings.TrimSpace(idOrSlug)
+	if item, ok := c.items[key]; ok && time.Now().Before(item.expiresAt) {
+		return item.marketUUID, true
+	}
+	return uuid.Nil, false
 }
 
 // Invalidate removes cached entries for a specific market and resets market listings.

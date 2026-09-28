@@ -61,7 +61,10 @@ func (c *Client) SetOnClose(fn func()) {
 // The application runs readPump in a per-connection goroutine.
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		select {
+		case c.hub.unregister <- c:
+		case <-c.hub.shutdown:
+		}
 		c.conn.Close()
 		if c.onClose != nil {
 			c.onClose()

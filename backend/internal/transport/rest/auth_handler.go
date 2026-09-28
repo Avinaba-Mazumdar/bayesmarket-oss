@@ -358,8 +358,15 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	// If dev mode or mock code, bypass with mock user
+	// If dev mode or mock code, bypass with mock user (only allowed in local/dev)
 	if h.googleClientID == "" || strings.HasPrefix(req.Code, "mock-") {
+		if !h.isDevOrLocal {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "dev_mode_disabled",
+				"message": "Dev mock authentication codes are only allowed when APP_ENV=local or dev",
+			})
+			return
+		}
 		user, err := h.upsertGoogleUser(ctx, c, "google-mock-cb", "oauth.trader@bayesmarket.com", "OAuth Trader", "")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to create user session"})

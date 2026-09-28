@@ -28,6 +28,7 @@ type TelemetryBroadcaster interface {
 // MarketCacheInvalidator defines the contract for invalidating market cache entries.
 type MarketCacheInvalidator interface {
 	Invalidate(key string)
+	GetMarketUUID(idOrSlug string) (uuid.UUID, bool)
 }
 
 // TradeHandler handles atomic order placements and share cash-out liquidations.
@@ -50,6 +51,22 @@ func NewTradeHandler(pool *pgxpool.Pool, hubOpt ...*ws.Hub) *TradeHandler {
 // SetCache attaches a cache invalidator instance for event-driven cache invalidation.
 func (h *TradeHandler) SetCache(cache MarketCacheInvalidator) {
 	h.cache = cache
+}
+
+func (h *TradeHandler) resolveMarketLockKey(param string) string {
+	param = strings.TrimSpace(param)
+	if param == "" {
+		return "market:none"
+	}
+	if _, err := uuid.Parse(param); err == nil {
+		return "market:" + param
+	}
+	if h.cache != nil {
+		if mUUID, ok := h.cache.GetMarketUUID(param); ok && mUUID != uuid.Nil {
+			return "market:" + mUUID.String()
+		}
+	}
+	return "market:" + param
 }
 
 // PlaceOrderRequest defines the input payload for placing a buy order.
@@ -133,7 +150,7 @@ func (h *TradeHandler) HandlePlaceOrder(c *gin.Context) {
 	}
 
 	// In-process lock serialization per market to prevent abort storms under high concurrency
-	unlock := h.locks.acquire("market:" + marketIDParam)
+	unlock := h.locks.acquire(h.resolveMarketLockKey(marketIDParam))
 	defer unlock()
 
 	var req PlaceOrderRequest
@@ -392,7 +409,7 @@ func (h *TradeHandler) HandleCashOut(c *gin.Context) {
 		return
 	}
 
-	unlock := h.locks.acquire("market:" + marketIDParam)
+	unlock := h.locks.acquire(h.resolveMarketLockKey(marketIDParam))
 	defer unlock()
 
 	outcome, valErr := ParseOutcome(req.Outcome)
@@ -482,14 +499,14 @@ func (h *TradeHandler) executeCashOutTx(
 		return nil, err
 	}
 
-	// Step 3: User Position lock (Hierarchy Level 3)
-	ownedShares, _, totalInvested, err := lockAndVerifyUserPosition(ctx, tx, userID, marketUUID, outcome, shares)
+	// Step 3: Liquidity Pool lock (Hierarchy Level 3)
+	poolReserves, totalVolume, err := lockLiquidityPool(ctx, tx, marketUUID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 4: Liquidity Pool lock (Hierarchy Level 4)
-	poolReserves, totalVolume, err := lockLiquidityPool(ctx, tx, marketUUID)
+	// Step 4: User Position lock (Hierarchy Level 4)
+	ownedShares, _, totalInvested, err := lockAndVerifyUserPosition(ctx, tx, userID, marketUUID, outcome, shares)
 	if err != nil {
 		return nil, err
 	}

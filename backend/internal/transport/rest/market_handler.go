@@ -381,7 +381,7 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 		}
 
 		if h.cache != nil {
-			h.cache.SetMarket(marketUUID.String(), marketIDParam, MarketSummaryResponse{ID: marketUUID.String()}, poolReserves, marketUUID)
+			h.cache.SetReserves(marketUUID.String(), marketIDParam, poolReserves, marketUUID)
 		}
 	}
 
