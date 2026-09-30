@@ -363,13 +363,20 @@ export class OrderConfirmDialogComponent {
         this.isExecuting.set(true);
         const idempotencyKey = `order-ui-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+        const quotedShares = parseFloat(ord.quote.shares_received);
+        const slippagePct = parseFloat(ord.maxSlippagePct || '5.0');
+        const slippageFactor = isNaN(slippagePct) ? 0.05 : slippagePct / 100;
+        const minSharesOut = !isNaN(quotedShares) && quotedShares > 0 ? (quotedShares * Math.max(0, 1 - slippageFactor)).toFixed(8) : undefined;
+
         this.apiService
             .placeOrder(
                 ord.marketId,
                 {
                     outcome: ord.outcome,
                     amount_usdc: ord.amountUSDC,
-                    max_slippage_pct: ord.maxSlippagePct
+                    max_slippage_pct: ord.maxSlippagePct,
+                    min_shares_out: minSharesOut,
+                    expected_price: ord.quote.avg_price
                 },
                 token,
                 idempotencyKey

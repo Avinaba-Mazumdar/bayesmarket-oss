@@ -50,6 +50,8 @@ export interface PlaceOrderRequest {
     outcome: 'YES' | 'NO';
     amount_usdc: string;
     max_slippage_pct?: string;
+    min_shares_out?: string;
+    expected_price?: string;
 }
 
 export interface OrderResponse {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -74,6 +75,8 @@ type PlaceOrderRequest struct {
 	Outcome        string `json:"outcome"`
 	AmountUSDC     string `json:"amount_usdc"`
 	MaxSlippagePct string `json:"max_slippage_pct,omitempty"`
+	MinSharesOut   string `json:"min_shares_out,omitempty"`
+	ExpectedPrice  string `json:"expected_price,omitempty"`
 }
 
 // OrderResponse represents the authoritative execution receipt for a trade.
@@ -177,6 +180,26 @@ func (h *TradeHandler) HandlePlaceOrder(c *gin.Context) {
 		return
 	}
 
+	var minSharesOut decimal.Decimal
+	if req.MinSharesOut != "" {
+		minShares, valErr := ParsePositiveDecimal(req.MinSharesOut, "min_shares_out")
+		if valErr != nil {
+			c.JSON(valErr.StatusCode, gin.H{"error": valErr.ErrorCode, "message": valErr.Message})
+			return
+		}
+		minSharesOut = minShares
+	}
+
+	var expectedPrice decimal.Decimal
+	if req.ExpectedPrice != "" {
+		expPrice, valErr := ParsePositiveDecimal(req.ExpectedPrice, "expected_price")
+		if valErr != nil {
+			c.JSON(valErr.StatusCode, gin.H{"error": valErr.ErrorCode, "message": valErr.Message})
+			return
+		}
+		expectedPrice = expPrice
+	}
+
 	// 1. Fast path: check idempotency receipt outside tx
 	cachedResp, found, err := GetCachedIdempotencyResponse(ctx, h.pool, userID, "place_order", idempotencyKey)
 	if err == nil && found {
@@ -186,7 +209,7 @@ func (h *TradeHandler) HandlePlaceOrder(c *gin.Context) {
 
 	// 2. Execute with resilient serializable retry loop
 	finalResponse, err := ExecuteSerializableWithRetry(ctx, 25, func() (*OrderResponse, error) {
-		return h.executeOrderTx(ctx, userID, idempotencyKey, marketIDParam, outcome, amount, maxSlippage)
+		return h.executeOrderTx(ctx, userID, idempotencyKey, marketIDParam, outcome, amount, maxSlippage, minSharesOut, expectedPrice)
 	})
 
 	if err != nil {
@@ -226,6 +249,8 @@ func (h *TradeHandler) executeOrderTx(
 	outcome amm.Outcome,
 	amount decimal.Decimal,
 	maxSlippage decimal.Decimal,
+	minSharesOut decimal.Decimal,
+	expectedPrice decimal.Decimal,
 ) (*OrderResponse, error) {
 	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -233,20 +258,20 @@ func (h *TradeHandler) executeOrderTx(
 	}
 	defer tx.Rollback(ctx)
 
-	// Step 1: User lock & sufficiency check (Hierarchy Level 1)
-	currentCashBalance, err := lockAndVerifyUserBalance(ctx, tx, userID, amount)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Market lock & active check (Hierarchy Level 2)
+	// Step 1: Market lock & active check (Hierarchy Level 1)
 	marketUUID, err := lockAndVerifyActiveMarket(ctx, tx, marketIDParam)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 3: Liquidity Pool lock (Hierarchy Level 3)
+	// Step 2: Liquidity Pool lock (Hierarchy Level 2)
 	poolReserves, totalVolume, err := lockLiquidityPool(ctx, tx, marketUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 3: User lock & sufficiency check (Hierarchy Level 3)
+	currentCashBalance, err := lockAndVerifyUserBalance(ctx, tx, userID, amount)
 	if err != nil {
 		return nil, err
 	}
@@ -263,6 +288,25 @@ func (h *TradeHandler) executeOrderTx(
 			StatusCode: http.StatusBadRequest,
 			ErrorCode:  "slippage_exceeded",
 			Message:    "Price impact (" + quote.PriceImpactPct.StringFixed(4) + "%) exceeds maximum allowed slippage (" + maxSlippage.StringFixed(4) + "%)",
+		}
+	}
+
+	if minSharesOut.IsPositive() && quote.SharesReceived.LessThan(minSharesOut) {
+		return nil, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "slippage_exceeded",
+			Message:    fmt.Sprintf("Execution output (%s shares) is below quoted minimum (%s shares)", quote.SharesReceived.StringFixed(4), minSharesOut.StringFixed(4)),
+		}
+	}
+
+	if expectedPrice.IsPositive() {
+		maxAllowedPrice := expectedPrice.Mul(decimal.NewFromInt(1).Add(maxSlippage.Div(decimal.NewFromInt(100))))
+		if quote.AvgPrice.GreaterThan(maxAllowedPrice) {
+			return nil, &AppError{
+				StatusCode: http.StatusBadRequest,
+				ErrorCode:  "slippage_exceeded",
+				Message:    fmt.Sprintf("Execution price ($%s) exceeded maximum allowed limit ($%s) from quoted price ($%s)", quote.AvgPrice.StringFixed(4), maxAllowedPrice.StringFixed(4), expectedPrice.StringFixed(4)),
+			}
 		}
 	}
 
@@ -488,21 +532,21 @@ func (h *TradeHandler) executeCashOutTx(
 	}
 	defer tx.Rollback(ctx)
 
-	// Step 1: User lock (Hierarchy Level 1)
-	var currentCashBalance decimal.Decimal
-	err = tx.QueryRow(ctx, `SELECT cash_balance FROM users WHERE id = $1 FOR UPDATE;`, userID).Scan(&currentCashBalance)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Market lock (Hierarchy Level 2)
+	// Step 1: Market lock (Hierarchy Level 1)
 	marketUUID, err := lockAndVerifyActiveMarket(ctx, tx, marketIDParam)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 3: Liquidity Pool lock (Hierarchy Level 3)
+	// Step 2: Liquidity Pool lock (Hierarchy Level 2)
 	poolReserves, totalVolume, err := lockLiquidityPool(ctx, tx, marketUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 3: User lock (Hierarchy Level 3)
+	var currentCashBalance decimal.Decimal
+	err = tx.QueryRow(ctx, `SELECT cash_balance FROM users WHERE id = $1 FOR UPDATE;`, userID).Scan(&currentCashBalance)
 	if err != nil {
 		return nil, err
 	}

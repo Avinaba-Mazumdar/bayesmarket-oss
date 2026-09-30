@@ -170,7 +170,7 @@ func CalculateCompleteSetBuy(depositUSDC decimal.Decimal, outcome Outcome, pool 
 		sharesReceived = pool.ReserveNo.Add(depositUSDC).Sub(newReserveNo)
 	}
 
-	if sharesReceived.LessThanOrEqual(Zero) {
+	if sharesReceived.LessThanOrEqual(Zero) || sharesReceived.Truncate(StoragePrecision).IsZero() {
 		return BuyQuote{}, ErrInsufficientPoolLiquidity
 	}
 
@@ -276,7 +276,7 @@ func CalculateCompleteSetSell(sharesToSell decimal.Decimal, outcome Outcome, poo
 	payoutUSDC := A.Sub(sqrtDiscriminant).DivRound(Two, CalculationPrecision)
 
 	// Boundary checks
-	if payoutUSDC.LessThanOrEqual(Zero) {
+	if payoutUSDC.LessThanOrEqual(Zero) || payoutUSDC.Truncate(StoragePrecision).IsZero() {
 		return SellQuote{}, ErrInsufficientPoolLiquidity
 	}
 	if payoutUSDC.GreaterThan(pool.CollateralReserve) {

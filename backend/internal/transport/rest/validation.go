@@ -30,7 +30,7 @@ func ParsePositiveDecimal(raw string, fieldName string) (decimal.Decimal, *AppEr
 	return ParseBoundedPositiveDecimal(raw, fieldName, MaxTradeAmountUSDC)
 }
 
-// ParseBoundedPositiveDecimal parses a string into a strictly positive decimal.Decimal and enforces an upper bound.
+// ParseBoundedPositiveDecimal parses a string into a strictly positive decimal.Decimal and enforces an upper bound and storage precision (8 decimal places).
 func ParseBoundedPositiveDecimal(raw string, fieldName string, maxVal decimal.Decimal) (decimal.Decimal, *AppError) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
@@ -41,12 +41,34 @@ func ParseBoundedPositiveDecimal(raw string, fieldName string, maxVal decimal.De
 		}
 	}
 
+	// Reject precision beyond database NUMERIC(..., 8) storage precision
+	parts := strings.Split(trimmed, ".")
+	if len(parts) == 2 {
+		fractional := strings.TrimRight(parts[1], "0")
+		if len(fractional) > int(amm.StoragePrecision) {
+			return decimal.Zero, &AppError{
+				StatusCode: http.StatusBadRequest,
+				ErrorCode:  "invalid_" + fieldName,
+				Message:    fmt.Sprintf("%s exceeds maximum supported precision of %d decimal places", fieldName, amm.StoragePrecision),
+			}
+		}
+	}
+
 	val, err := decimal.NewFromString(trimmed)
 	if err != nil || val.LessThanOrEqual(decimal.Zero) {
 		return decimal.Zero, &AppError{
 			StatusCode: http.StatusBadRequest,
 			ErrorCode:  "invalid_" + fieldName,
 			Message:    fmt.Sprintf("%s must be a positive decimal string", fieldName),
+		}
+	}
+
+	val = val.Truncate(amm.StoragePrecision)
+	if val.IsZero() {
+		return decimal.Zero, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "invalid_" + fieldName,
+			Message:    fmt.Sprintf("%s is too small, must be at least 0.00000001", fieldName),
 		}
 	}
 

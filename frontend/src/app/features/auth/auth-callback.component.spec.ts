@@ -103,6 +103,16 @@ describe('AuthCallbackComponent', () => {
         expect(sessionStorageMock.getItem('bayesmarket_oauth_state')).toBeNull();
     });
 
+    it('should reject when saved state is missing in browser session (prevent account takeover)', async () => {
+        // No saved state in sessionStorage (user did not initiate OAuth in this session)
+        await setupComponent({ code: 'attacker-auth-code', state: 'attacker-state' });
+        fixture.detectChanges();
+
+        expect(toastServiceSpy.error).toHaveBeenCalledWith('Security Verification Failed', expect.stringContaining('OAuth state verification failed'));
+        expect(apiServiceSpy.callbackGoogleAuth).not.toHaveBeenCalled();
+        expect(component.errorMessage()).toContain('missing or invalid OAuth state parameter');
+    });
+
     it('should exchange authorization code and state and navigate home on success', async () => {
         sessionStorageMock.setItem('bayesmarket_oauth_state', 'valid-state-abc');
         apiServiceSpy.callbackGoogleAuth.mockReturnValue(

@@ -1,11 +1,14 @@
-# NOTE: For production deployments, override default passwords, JWT_SECRET, and ADMIN_TOKEN using environment variables or a .env file.
+# NOTE: Provide required secrets via a .env file or environment variables before deployment:
+#   JWT_SECRET=$(openssl rand -hex 32)
+#   ADMIN_TOKEN=$(openssl rand -hex 24)
+#   POSTGRES_PASSWORD=$(openssl rand -hex 16)
 services:
     postgres:
         image: postgres:18-alpine
         container_name: bayesmarket-db
         environment:
             POSTGRES_USER: ${POSTGRES_USER:-bayesuser}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bayespassword}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
             POSTGRES_DB: ${POSTGRES_DB:-bayesmarket}
         ports:
             - "127.0.0.1:5432:5432"
@@ -28,13 +31,13 @@ services:
             dockerfile: Dockerfile
         container_name: bayesmarket-backend
         environment:
-            APP_ENV: ${APP_ENV:-development}
-            DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-bayesuser}:${POSTGRES_PASSWORD:-bayespassword}@postgres:5432/${POSTGRES_DB:-bayesmarket}?sslmode=disable}
+            APP_ENV: ${APP_ENV:-production}
+            DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-bayesuser}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-bayesmarket}?sslmode=disable}
             SERVER_PORT: ${SERVER_PORT:-8080}
             CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:4200,http://localhost:80,http://localhost}
-            JWT_SECRET: ${JWT_SECRET:-bayesmarket-docker-jwt-secret-key-at-least-32-chars}
-            ADMIN_TOKEN: ${ADMIN_TOKEN:-bayesmarket-admin-secret-token}
-            AUTO_SEED: ${AUTO_SEED:-true}
+            JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set (minimum 32 characters)}
+            ADMIN_TOKEN: ${ADMIN_TOKEN:?ADMIN_TOKEN must be set (minimum 16 characters)}
+            AUTO_SEED: ${AUTO_SEED:-false}
         ports:
             - "127.0.0.1:8080:8080"
         depends_on:

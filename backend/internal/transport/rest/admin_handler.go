@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -205,17 +207,72 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 		}
 	}
 
-	// Begin SERIALIZABLE database transaction for atomic payout settlement
+	// Execute settlement with resilient retry loop for transient database concurrency conflicts
+	responseObj, err := ExecuteSerializableWithRetry(ctx, 25, func() (*ResolveMarketResponse, error) {
+		return h.executeResolutionTx(ctx, marketID, winningOutcome, proofHash, oracleProof, actorID, idempotencyKey)
+	})
+
+	if err != nil {
+		if errors.Is(err, ErrIdempotencyReplay) {
+			if cached, ok, _ := GetCachedIdempotencyResponse(ctx, h.pool, actorID, "resolve", idempotencyKey); ok {
+				c.Data(http.StatusOK, "application/json", cached)
+				return
+			}
+		}
+		var appErr *AppError
+		if errors.As(err, &appErr) {
+			c.JSON(appErr.StatusCode, gin.H{"error": appErr.ErrorCode, "message": appErr.Message})
+			return
+		}
+		if IsSerializationOrDeadlock(err) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "concurrency_conflict",
+				"message": "Settlement transaction experienced concurrency conflicts after multiple retries. Please retry.",
+			})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to settle market resolution"})
+		return
+	}
+
+	if h.marketCache != nil {
+		h.marketCache.Invalidate(marketID.String())
+	}
+
+	// 8. Cache verified oracle response for 60 seconds
+	h.cache.set(marketID.String(), winningOutcome, proofHash)
+
+	// 9. Broadcast MARKET_RESOLVED WebSocket frame to connected clients
+	if h.hub != nil {
+		h.hub.BroadcastMarketResolved(ws.MarketResolvedMessage{
+			Type:           ws.MessageTypeMarketResolved,
+			MarketID:       marketID.String(),
+			WinningOutcome: winningOutcome,
+			Timestamp:      responseObj.ResolvedAt,
+		})
+	}
+
+	c.JSON(http.StatusOK, responseObj)
+}
+
+func (h *AdminHandler) executeResolutionTx(
+	ctx context.Context,
+	marketID uuid.UUID,
+	winningOutcome string,
+	proofHash string,
+	oracleProof string,
+	actorID uuid.UUID,
+	idempotencyKey string,
+) (*ResolveMarketResponse, error) {
 	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to initiate settlement transaction"})
-		return
+		return nil, err
 	}
 	defer func() {
 		_ = tx.Rollback(ctx)
 	}()
 
-	// 1. Lock and verify market state
+	// 1. Lock and verify market state (Hierarchy Level 1: Market)
 	var currentStatus, currentWinningOutcome, resolutionSource string
 	marketQuery := `
 		SELECT status, COALESCE(winning_outcome, ''), resolution_source
@@ -225,23 +282,21 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	`
 	err = tx.QueryRow(ctx, marketQuery, marketID).Scan(&currentStatus, &currentWinningOutcome, &resolutionSource)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "market_not_found", "message": "Market does not exist"})
-			return
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, &AppError{StatusCode: http.StatusNotFound, ErrorCode: "market_not_found", Message: "Market does not exist"}
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to lock market row"})
-		return
+		return nil, err
 	}
 
 	if currentStatus == "resolved" {
-		c.JSON(http.StatusConflict, gin.H{
-			"error":   "market_already_resolved",
-			"message": fmt.Sprintf("Market is already resolved with outcome '%s'", currentWinningOutcome),
-		})
-		return
+		return nil, &AppError{
+			StatusCode: http.StatusConflict,
+			ErrorCode:  "market_already_resolved",
+			Message:    fmt.Sprintf("Market is already resolved with outcome '%s'", currentWinningOutcome),
+		}
 	}
 
-	// 2. Lock liquidity pool collateral
+	// 2. Lock liquidity pool collateral (Hierarchy Level 2: Pool)
 	var collateralReserve decimal.Decimal
 	poolQuery := `
 		SELECT collateral_reserve
@@ -251,8 +306,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	`
 	err = tx.QueryRow(ctx, poolQuery, marketID).Scan(&collateralReserve)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to lock liquidity pool collateral"})
-		return
+		return nil, err
 	}
 
 	// 3. Mark market as resolved
@@ -262,8 +316,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 		WHERE id = $2;
 	`
 	if _, err := tx.Exec(ctx, updateMarketQuery, winningOutcome, marketID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to update market status"})
-		return
+		return nil, err
 	}
 
 	// 4. Distribute complete-set collateral ($1.00 per share) to winning positions
@@ -275,8 +328,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	`
 	rows, err := tx.Query(ctx, winningPositionsQuery, marketID, winningOutcome)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to query winning positions"})
-		return
+		return nil, err
 	}
 
 	type winRecord struct {
@@ -293,6 +345,11 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	}
 	rows.Close()
 
+	// Sort winners deterministically by user ID to prevent database deadlock
+	sort.Slice(winners, func(i, j int) bool {
+		return winners[i].userID.String() < winners[j].userID.String()
+	})
+
 	totalPayout := decimal.Zero
 	for _, w := range winners {
 		totalPayout = totalPayout.Add(w.shares.Truncate(8))
@@ -302,17 +359,16 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	if totalPayout.GreaterThan(collateralReserve) {
 		log.Printf("[CRITICAL RESOLUTION SOLVENCY FAILURE] MarketID=%s totalPayout=%s exceeds collateralReserve=%s",
 			marketID.String(), totalPayout.StringFixed(8), collateralReserve.StringFixed(8))
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "collateral_insolvency",
-			"message": fmt.Sprintf("Settlement total payout (%s USDC) exceeds collateral reserve (%s USDC)", totalPayout.StringFixed(4), collateralReserve.StringFixed(4)),
-		})
-		return
+		return nil, &AppError{
+			StatusCode: http.StatusInternalServerError,
+			ErrorCode:  "collateral_insolvency",
+			Message:    fmt.Sprintf("Settlement total payout (%s USDC) exceeds collateral reserve (%s USDC)", totalPayout.StringFixed(4), collateralReserve.StringFixed(4)),
+		}
 	}
 
 	settlementTxID := uuid.New()
 
 	for _, w := range winners {
-		// Each winning share redeems for exactly $1.00000000 USDC
 		payout := w.shares.Truncate(8)
 
 		// Credit user cash balance
@@ -322,8 +378,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			WHERE id = $2;
 		`
 		if _, err := tx.Exec(ctx, creditUserQuery, payout, w.userID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to credit winning trader"})
-			return
+			return nil, err
 		}
 
 		// Zero out winning shares
@@ -333,8 +388,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			WHERE id = $1;
 		`
 		if _, err := tx.Exec(ctx, zeroPosQuery, w.posID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to zero winning position"})
-			return
+			return nil, err
 		}
 
 		// Double-entry bookkeeping ledger
@@ -353,8 +407,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			settlementTxID, w.userID, marketID,
 			payout, negPayout, posAccount, winningOutcome, negShares, w.shares,
 		); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to record settlement ledger entries"})
-			return
+			return nil, err
 		}
 	}
 
@@ -381,6 +434,10 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			}
 		}
 		loseRows.Close()
+
+		sort.Slice(losers, func(i, j int) bool {
+			return losers[i].userID.String() < losers[j].userID.String()
+		})
 
 		for _, l := range losers {
 			zeroLoseQuery := `
@@ -410,8 +467,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 		WHERE market_id = $2;
 	`
 	if _, err := tx.Exec(ctx, updatePoolQuery, remainingCollateral, marketID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to update pool collateral reserve"})
-		return
+		return nil, err
 	}
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
@@ -446,28 +502,10 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 
 	// Commit transaction
 	if err := tx.Commit(ctx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to commit resolution transaction"})
-		return
+		return nil, err
 	}
 
-	if h.marketCache != nil {
-		h.marketCache.Invalidate(marketID.String())
-	}
-
-	// 8. Cache verified oracle response for 60 seconds
-	h.cache.set(marketID.String(), winningOutcome, proofHash)
-
-	// 9. Broadcast MARKET_RESOLVED WebSocket frame to connected clients
-	if h.hub != nil {
-		h.hub.BroadcastMarketResolved(ws.MarketResolvedMessage{
-			Type:           ws.MessageTypeMarketResolved,
-			MarketID:       marketID.String(),
-			WinningOutcome: winningOutcome,
-			Timestamp:      nowStr,
-		})
-	}
-
-	c.JSON(http.StatusOK, responseObj)
+	return &responseObj, nil
 }
 
 // HandleVerifyAdmin validates the admin credential and returns 200 OK.

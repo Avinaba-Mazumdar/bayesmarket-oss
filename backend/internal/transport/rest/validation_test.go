@@ -39,6 +39,17 @@ func TestParsePositiveDecimal(t *testing.T) {
 	assert.Nil(t, err)
 	assert.True(t, d.Equal(decimal.NewFromFloat(100.50)))
 
+	// Exceeds precision limit of 8 decimal places
+	_, err = rest.ParsePositiveDecimal("100.123456789", "amount")
+	assert.NotNil(t, err)
+	assert.Equal(t, "invalid_amount", err.ErrorCode)
+	assert.Contains(t, err.Message, "8 decimal places")
+
+	// Valid 8 decimal places
+	d8, err := rest.ParsePositiveDecimal("100.12345678", "amount")
+	assert.Nil(t, err)
+	assert.True(t, d8.Equal(decimal.RequireFromString("100.12345678")))
+
 	// Exceeds max 1,000,000
 	_, err = rest.ParsePositiveDecimal("1000001", "amount")
 	assert.NotNil(t, err)
@@ -48,6 +59,10 @@ func TestParsePositiveDecimal(t *testing.T) {
 	_, err = rest.ParsePositiveDecimal("0", "amount")
 	assert.NotNil(t, err)
 	_, err = rest.ParsePositiveDecimal("-5", "amount")
+	assert.NotNil(t, err)
+
+	// Sub-atomic value rounding to zero at 8 decimal places
+	_, err = rest.ParsePositiveDecimal("0.000000001", "amount")
 	assert.NotNil(t, err)
 
 	// Non-numeric or empty

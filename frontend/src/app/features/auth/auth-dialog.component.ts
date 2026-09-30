@@ -19,7 +19,13 @@ import { ToastService } from '../../shared/components/toast/toast.service';
         <app-dialog
             [open]="authStore.isAuthModalOpen()"
             (closed)="onClose()"
-            [title]="!authStore.isAuthenticated() || authStore.isGuest() ? 'Sign In to BayesMarket' : 'Your Account'"
+            [title]="
+                !authStore.isAuthenticated()
+                    ? 'Sign In to BayesMarket'
+                    : authStore.isGuest()
+                      ? 'Connect Google Account'
+                      : 'Your Account'
+            "
             [description]="
                 !authStore.isAuthenticated()
                     ? 'Choose an option to begin trading with your complimentary $1,000.00 USDC paper balance.'

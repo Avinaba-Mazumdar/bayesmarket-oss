@@ -6,6 +6,7 @@ import { LucideArrowUp, LucideArrowDown } from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
 import { BuyQuoteResponse, Market } from '../../core/models/market.model';
 import { AuthStore } from '../../state/auth.store';
+import { ToastService } from '../../shared/components/toast/toast.service';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { BadgeComponent } from '../../shared/components/badge/badge.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -589,6 +590,7 @@ export class OrderTerminalComponent {
     readonly orderReviewRequested = output<OrderIntent>();
 
     protected readonly apiService = inject(ApiService);
+    protected readonly toastService = inject(ToastService);
     readonly authStore = inject(AuthStore);
 
     readonly selectedOutcome = signal<'YES' | 'NO'>('YES');
@@ -903,25 +905,8 @@ export class OrderTerminalComponent {
                 },
                 error: (err) => {
                     this.isLoadingQuote.set(false);
-                    console.warn('Confirm-time fresh quote fetch failed, falling back to latest quote:', err);
-                    const fallbackQuote = this.latestQuote();
-                    if (!fallbackQuote) return;
-
-                    const currentBalStr = this.authStore.cashBalance();
-                    const currentBalNum = parseFloat(currentBalStr.replace(/[$,]/g, ''));
-                    const postBalNum = Math.max(0, currentBalNum - tradeAmt);
-                    const postTradeBalStr = `$${postBalNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-                    this.orderReviewRequested.emit({
-                        marketId: m.id,
-                        marketTitle: m.title,
-                        outcome: this.selectedOutcome(),
-                        amountUSDC: tradeAmt.toFixed(8),
-                        quote: fallbackQuote,
-                        maxSlippagePct: this.maxSlippageTolerancePct(),
-                        currentBalance: currentBalStr,
-                        postTradeBalance: postTradeBalStr
-                    });
+                    const msg = err?.error?.message || 'Unable to fetch a fresh quote from the orderbook. Please try again.';
+                    this.toastService.error('Quote Failed', msg);
                 }
             });
     }

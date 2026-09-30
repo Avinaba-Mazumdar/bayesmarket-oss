@@ -144,16 +144,18 @@ export class AuthCallbackComponent implements OnInit {
             return;
         }
 
-        // Validate state against sessionStorage to guard against CSRF
+        // Validate state against sessionStorage to guard against CSRF and guest account takeover
+        const savedState = typeof window !== 'undefined' && window.sessionStorage
+            ? sessionStorage.getItem('bayesmarket_oauth_state')
+            : null;
         if (typeof window !== 'undefined' && window.sessionStorage) {
-            const savedState = sessionStorage.getItem('bayesmarket_oauth_state');
             sessionStorage.removeItem('bayesmarket_oauth_state');
+        }
 
-            if (savedState && state && savedState !== state) {
-                this.errorMessage.set('Security verification failed (state parameter mismatch). Please try logging in again.');
-                this.toastService.error('Security Verification Failed', 'OAuth state verification failed. Request may have been forged.');
-                return;
-            }
+        if (!savedState || !state || savedState !== state) {
+            this.errorMessage.set('Security verification failed: missing or invalid OAuth state parameter. Please initiate sign-in again.');
+            this.toastService.error('Security Verification Failed', 'OAuth state verification failed. Request may have been forged or session expired.');
+            return;
         }
 
         // Exchange code and state for session with 12s timeout
