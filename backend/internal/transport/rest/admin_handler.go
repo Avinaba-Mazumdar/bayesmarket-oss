@@ -293,12 +293,26 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	rows.Close()
 
 	totalPayout := decimal.Zero
+	for _, w := range winners {
+		totalPayout = totalPayout.Add(w.shares.Truncate(8))
+	}
+
+	// Solvency assertion: pool collateral must be sufficient to back all winning payouts
+	if totalPayout.GreaterThan(collateralReserve) {
+		log.Printf("[CRITICAL RESOLUTION SOLVENCY FAILURE] MarketID=%s totalPayout=%s exceeds collateralReserve=%s",
+			marketID.String(), totalPayout.StringFixed(8), collateralReserve.StringFixed(8))
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "collateral_insolvency",
+			"message": fmt.Sprintf("Settlement total payout (%s USDC) exceeds collateral reserve (%s USDC)", totalPayout.StringFixed(4), collateralReserve.StringFixed(4)),
+		})
+		return
+	}
+
 	settlementTxID := uuid.New()
 
 	for _, w := range winners {
 		// Each winning share redeems for exactly $1.00000000 USDC
 		payout := w.shares.Truncate(8)
-		totalPayout = totalPayout.Add(payout)
 
 		// Credit user cash balance
 		creditUserQuery := `
@@ -388,12 +402,13 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	}
 
 	// 6. Deduct total payout from liquidity pool collateral reserve
+	remainingCollateral := collateralReserve.Sub(totalPayout)
 	updatePoolQuery := `
 		UPDATE liquidity_pools
-		SET collateral_reserve = GREATEST(0, collateral_reserve - $1), updated_at = NOW()
+		SET collateral_reserve = $1, updated_at = NOW()
 		WHERE market_id = $2;
 	`
-	if _, err := tx.Exec(ctx, updatePoolQuery, totalPayout, marketID); err != nil {
+	if _, err := tx.Exec(ctx, updatePoolQuery, remainingCollateral, marketID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to update pool collateral reserve"})
 		return
 	}

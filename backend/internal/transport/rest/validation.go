@@ -87,3 +87,32 @@ func ParseSlippagePct(raw string, defaultPct decimal.Decimal) (decimal.Decimal, 
 
 	return val, nil
 }
+
+// ParseOptionalBoundedPositiveDecimal parses an optional string into a non-negative decimal bounded by maxVal.
+// If empty, it returns defaultVal without error.
+func ParseOptionalBoundedPositiveDecimal(raw string, fieldName string, defaultVal, maxVal decimal.Decimal) (decimal.Decimal, *AppError) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return defaultVal, nil
+	}
+
+	val, err := decimal.NewFromString(trimmed)
+	if err != nil || val.IsNegative() {
+		return decimal.Zero, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "invalid_" + fieldName,
+			Message:    fmt.Sprintf("%s must be a non-negative decimal string", fieldName),
+		}
+	}
+
+	if !maxVal.IsZero() && val.GreaterThan(maxVal) {
+		return decimal.Zero, &AppError{
+			StatusCode: http.StatusBadRequest,
+			ErrorCode:  "invalid_" + fieldName,
+			Message:    fmt.Sprintf("%s exceeds maximum allowed limit of %s", fieldName, maxVal.StringFixed(2)),
+		}
+	}
+
+	return val, nil
+}
+

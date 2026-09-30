@@ -23,7 +23,7 @@ interface GlossaryTerm {
         <app-dialog
             [open]="isOpen()"
             title="Trading Glossary & Concepts"
-            description="Clear explanations of prediction market mechanics (WCAG SC 3.1.3 & SC 3.1.4)."
+            description="Clear explanations of prediction market mechanics."
             size="lg"
             (closed)="isOpen.set(false)"
         >

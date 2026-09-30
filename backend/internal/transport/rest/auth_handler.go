@@ -133,7 +133,10 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	clientIP := c.ClientIP()
+	clientIP := strings.TrimSpace(c.ClientIP())
+	if clientIP == "" {
+		clientIP = "127.0.0.1"
+	}
 	initialBalance := decimal.NewFromInt(1000)
 
 	var (
@@ -156,28 +159,28 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		if h.isDevOrLocal {
 			dailyCap = 100
 		}
-		var guestCount int
-		countQuery := `
-			SELECT COUNT(*) FROM users
-			WHERE is_guest = true AND ip_address = $1 AND created_at > NOW() - INTERVAL '24 hours';
-		`
-		if err := h.pool.QueryRow(ctx, countQuery, clientIP).Scan(&guestCount); err == nil && guestCount >= dailyCap {
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error":   "guest_limit_exceeded",
-				"message": "Maximum guest accounts created for this IP address today. Please sign in or try again later.",
-			})
-			return
-		}
 
+		// Atomic conditional insert eliminates TOCTOU races under concurrent requests
 		query := `
 			INSERT INTO users (is_guest, cash_balance, auth_provider, ip_address)
-			VALUES (true, $1, 'guest', $2)
+			SELECT true, $1, 'guest', $2
+			WHERE (
+				SELECT COUNT(*) FROM users
+				WHERE is_guest = true AND ip_address = $2 AND created_at > NOW() - INTERVAL '24 hours'
+			) < $3
 			RETURNING id, is_guest, auth_provider, cash_balance, created_at;
 		`
-		err := h.pool.QueryRow(ctx, query, initialBalance, clientIP).Scan(
+		err := h.pool.QueryRow(ctx, query, initialBalance, clientIP, dailyCap).Scan(
 			&userID, &isGuest, &authProvider, &cashBalance, &createdAt,
 		)
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusTooManyRequests, gin.H{
+					"error":   "guest_limit_exceeded",
+					"message": "Maximum guest accounts created for this IP address today. Please sign in or try again later.",
+				})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error":   "database_error",
 				"message": "Failed to provision guest user session",

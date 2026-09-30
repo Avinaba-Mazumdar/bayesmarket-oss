@@ -182,6 +182,7 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		publicReadLimiter.SetDisabled(true)
 		actionLimiter.SetDisabled(true)
 		quoteLimiter.SetDisabled(true)
+		middleware.SetAdminFailureLimiterDisabled(true)
 	}
 
 	// In-memory read-through cache (1-second TTL, event-invalidated on trades/settlements)
@@ -329,6 +330,7 @@ bayesmarket_up 1
 
 		// 5. Admin Market Management, Creation & Resolution (Protected)
 		admin := v1.Group("/admin")
+		admin.Use(actionLimiter.LimitByIP())
 		{
 			admin.GET("/verify",
 				middleware.RequireAdminAuth(adminToken, jwtSecret),
@@ -336,12 +338,10 @@ bayesmarket_up 1
 			)
 			admin.POST("/markets",
 				middleware.RequireAdminAuth(adminToken, jwtSecret),
-				actionLimiter.LimitByClientOrUser(),
 				adminHandler.HandleCreateMarket,
 			)
 			admin.POST("/markets/:id/resolve",
 				middleware.RequireAdminAuth(adminToken, jwtSecret),
-				actionLimiter.LimitByClientOrUser(),
 				adminHandler.HandleResolveMarket,
 			)
 		}

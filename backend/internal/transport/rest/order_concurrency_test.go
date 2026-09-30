@@ -419,6 +419,53 @@ func TestCashOut_LiquidationAndSolvency(t *testing.T) {
 	if wExcess.Code != http.StatusBadRequest {
 		t.Fatalf("Expected HTTP 400 for excessive shares liquidation, got %d", wExcess.Code)
 	}
+
+	// Attempting to sell an outcome where user has no position at all (e.g. NO) must return HTTP 400
+	noPosPayload := map[string]string{
+		"market_id": marketID,
+		"outcome":   "NO",
+		"shares":    "10.00000000",
+	}
+	noPosBytes, _ := json.Marshal(noPosPayload)
+	wNoPos := httptest.NewRecorder()
+	reqNoPos, _ := http.NewRequest(http.MethodPost, "/api/v1/portfolio/cashout", bytes.NewReader(noPosBytes))
+	reqNoPos.Header.Set("Content-Type", "application/json")
+	reqNoPos.Header.Set("Authorization", "Bearer "+token)
+	reqNoPos.Header.Set("Idempotency-Key", "cashout-nopos-"+uuid.New().String())
+	router.ServeHTTP(wNoPos, reqNoPos)
+
+	if wNoPos.Code != http.StatusBadRequest {
+		t.Fatalf("Expected HTTP 400 for liquidating non-existent position, got %d", wNoPos.Code)
+	}
+	var noPosErr map[string]interface{}
+	_ = json.Unmarshal(wNoPos.Body.Bytes(), &noPosErr)
+	if noPosErr["error"] != "insufficient_shares" {
+		t.Errorf("Expected error code 'insufficient_shares', got %v", noPosErr["error"])
+	}
+
+	// Attempting to cash out with min_payout_usdc > 100 (which previously failed validation because of ParseSlippagePct)
+	highPayoutPayload := map[string]string{
+		"market_id":       marketID,
+		"outcome":         "YES",
+		"shares":          "1.00000000",
+		"min_payout_usdc": "500.00000000", // Unattainable floor for 1 share, should trigger slippage_exceeded NOT invalid_slippage
+	}
+	highPayoutBytes, _ := json.Marshal(highPayoutPayload)
+	wHigh := httptest.NewRecorder()
+	reqHigh, _ := http.NewRequest(http.MethodPost, "/api/v1/portfolio/cashout", bytes.NewReader(highPayoutBytes))
+	reqHigh.Header.Set("Content-Type", "application/json")
+	reqHigh.Header.Set("Authorization", "Bearer "+token)
+	reqHigh.Header.Set("Idempotency-Key", "cashout-highfloor-"+uuid.New().String())
+	router.ServeHTTP(wHigh, reqHigh)
+
+	if wHigh.Code != http.StatusBadRequest {
+		t.Fatalf("Expected HTTP 400 when min_payout_usdc cannot be met, got %d", wHigh.Code)
+	}
+	var highErr map[string]interface{}
+	_ = json.Unmarshal(wHigh.Body.Bytes(), &highErr)
+	if highErr["error"] != "slippage_exceeded" {
+		t.Errorf("Expected error code 'slippage_exceeded', got %v (body: %s)", highErr["error"], wHigh.Body.String())
+	}
 }
 
 // 4. Idempotency Replay Test: Submitting identical order twice returns original receipt without double-charging

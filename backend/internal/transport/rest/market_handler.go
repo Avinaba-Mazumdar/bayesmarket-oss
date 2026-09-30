@@ -388,14 +388,9 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 	}
 
 	if action == "BUY" {
-		depositStr := strings.TrimSpace(req.AmountUSDC)
-		if depositStr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_amount", "message": "amount_usdc is required for BUY quote"})
-			return
-		}
-		deposit, err := decimal.NewFromString(depositStr)
-		if err != nil || deposit.LessThanOrEqual(decimal.Zero) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_amount", "message": "amount_usdc must be a positive decimal string"})
+		deposit, valErr := ParsePositiveDecimal(req.AmountUSDC, "amount_usdc")
+		if valErr != nil {
+			c.JSON(valErr.StatusCode, gin.H{"error": valErr.ErrorCode, "message": valErr.Message})
 			return
 		}
 
@@ -421,14 +416,9 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 			"new_collateral":   quote.NewCollateral.StringFixed(8),
 		})
 	} else {
-		sharesStr := strings.TrimSpace(req.Shares)
-		if sharesStr == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_shares", "message": "shares is required for SELL quote"})
-			return
-		}
-		shares, err := decimal.NewFromString(sharesStr)
-		if err != nil || shares.LessThanOrEqual(decimal.Zero) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_shares", "message": "shares must be a positive decimal string"})
+		shares, valErr := ParsePositiveDecimal(req.Shares, "shares")
+		if valErr != nil {
+			c.JSON(valErr.StatusCode, gin.H{"error": valErr.ErrorCode, "message": valErr.Message})
 			return
 		}
 

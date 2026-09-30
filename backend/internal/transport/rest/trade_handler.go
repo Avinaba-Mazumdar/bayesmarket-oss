@@ -426,7 +426,7 @@ func (h *TradeHandler) HandleCashOut(c *gin.Context) {
 		return
 	}
 
-	minPayout, valErr := ParseSlippagePct(req.MinPayoutUSDC, decimal.Zero)
+	minPayout, valErr := ParseOptionalBoundedPositiveDecimal(req.MinPayoutUSDC, "min_payout_usdc", decimal.Zero, MaxTradeAmountUSDC)
 	if valErr != nil {
 		c.JSON(valErr.StatusCode, gin.H{"error": valErr.ErrorCode, "message": valErr.Message})
 		return
@@ -691,7 +691,7 @@ func lockAndVerifyUserPosition(ctx context.Context, tx pgx.Tx, userID, marketUUI
 	`
 	err := tx.QueryRow(ctx, query, userID, marketUUID, string(outcome)).Scan(&ownedShares, &avgBuyPrice, &totalInvested)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || ownedShares.LessThan(requiredShares) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return decimal.Zero, decimal.Zero, decimal.Zero, &AppError{
 				StatusCode: http.StatusBadRequest,
 				ErrorCode:  "insufficient_shares",

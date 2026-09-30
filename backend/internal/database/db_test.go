@@ -6,25 +6,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bayesmarket/bayesmarket/internal/config"
 	"github.com/bayesmarket/bayesmarket/internal/database"
+	"github.com/bayesmarket/bayesmarket/internal/testutil"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
 func getTestPool(t *testing.T) *pgxpool.Pool {
-	cfg, err := config.Load()
-	if err != nil || cfg.DatabaseURL == "" || strings.Contains(cfg.DatabaseURL, "ep-cool-pool-123456") {
-		t.Skip("Skipping live database test: valid DATABASE_URL not available")
-	}
+	dbURL := testutil.SafeTestDatabaseURL(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := database.NewPool(ctx, dbURL)
 	if err != nil {
-		t.Skipf("Skipping live database test: cannot connect to Neon: %v", err)
+		t.Skipf("Skipping live database test: cannot connect to test database: %v", err)
 	}
 
 	return pool

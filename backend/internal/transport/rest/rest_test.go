@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/bayesmarket/bayesmarket/internal/config"
 	"github.com/bayesmarket/bayesmarket/internal/database"
+	"github.com/bayesmarket/bayesmarket/internal/testutil"
 	"github.com/bayesmarket/bayesmarket/internal/transport/rest"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,20 +22,17 @@ func init() {
 }
 
 func getTestEnv(t *testing.T) (*pgxpool.Pool, *config.Config, *gin.Engine) {
-	cfg, err := config.Load()
-	if err != nil || cfg.DatabaseURL == "" || strings.Contains(cfg.DatabaseURL, "ep-cool-pool-123456") {
-		t.Skip("Skipping live REST tests: valid DATABASE_URL not configured")
-	}
+	dbURL := testutil.SafeTestDatabaseURL(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := database.NewPool(ctx, dbURL)
 	if err != nil {
-		t.Skipf("Skipping live REST tests: cannot connect to Neon: %v", err)
+		t.Skipf("Skipping live REST tests: cannot connect to test database: %v", err)
 	}
 
-	cfg.DisableRateLimits = true
+	cfg := testutil.TestConfig(dbURL)
 	router := rest.SetupRouter(pool, cfg)
 	return pool, cfg, router
 }

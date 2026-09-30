@@ -61,3 +61,45 @@ func TestRateLimiter_BurstAndLimit(t *testing.T) {
 		t.Fatalf("Expected HTTP 200 for isolated IP, got %d", wOtherIP.Code)
 	}
 }
+
+func TestRequireAdminAuth_FailedAttemptLimiting(t *testing.T) {
+	middleware.SetAdminFailureLimiterDisabled(false)
+	defer middleware.SetAdminFailureLimiterDisabled(true)
+
+	adminToken := "secret-admin-token-1234"
+	router := gin.New()
+	router.POST("/admin/test", middleware.RequireAdminAuth(adminToken, "jwt-secret"), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "admin_granted"})
+	})
+
+	ip := "203.0.113.42:12345"
+
+	// 5 failed attempts with invalid token -> 403 Forbidden
+	for i := 0; i < 5; i++ {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest(http.MethodPost, "/admin/test", nil)
+		req.Header.Set("Authorization", "Bearer wrong-token")
+		req.RemoteAddr = ip
+		router.ServeHTTP(w, req)
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("Attempt %d: expected 403 Forbidden, got %d", i+1, w.Code)
+		}
+	}
+
+	// 6th attempt should be blocked with 429 Too Many Requests
+	wBlocked := httptest.NewRecorder()
+	reqBlocked, _ := http.NewRequest(http.MethodPost, "/admin/test", nil)
+	reqBlocked.Header.Set("Authorization", "Bearer wrong-token")
+	reqBlocked.RemoteAddr = ip
+	router.ServeHTTP(wBlocked, reqBlocked)
+
+	if wBlocked.Code != http.StatusTooManyRequests {
+		t.Fatalf("Expected 429 Too Many Requests after exceeding failure burst, got %d", wBlocked.Code)
+	}
+
+	retryAfter := wBlocked.Header().Get("Retry-After")
+	if retryAfter == "" {
+		t.Error("Expected Retry-After header on 429 response")
+	}
+}
+

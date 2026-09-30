@@ -3,12 +3,15 @@ package middleware
 import (
 	"crypto/subtle"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -159,10 +162,37 @@ func GetClaims(c *gin.Context) (*AuthClaims, bool) {
 	return claims, ok
 }
 
+// adminFailureLimiter tracks failed administrative authorization attempts per client IP.
+var adminFailureLimiter = NewRateLimiter(rate.Every(12*time.Second), 5, 60*time.Second)
+
+// SetAdminFailureLimiterDisabled enables or disables failed admin attempt limiting (useful for tests).
+func SetAdminFailureLimiterDisabled(disabled bool) {
+	adminFailureLimiter.SetDisabled(disabled)
+}
+
 // RequireAdminAuth validates that the request contains an authorized administrative credential.
 // It accepts either a static admin token (configured via ADMIN_TOKEN) or a valid non-guest administrative JWT.
 func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+		limiter := adminFailureLimiter.getLimiter(clientIP)
+
+		adminFailureLimiter.mu.RLock()
+		disabled := adminFailureLimiter.disabled
+		adminFailureLimiter.mu.RUnlock()
+
+		if !disabled && limiter.Tokens() < 1 {
+			if !limiter.Allow() {
+				c.Header("Retry-After", "60")
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+					"error":       "rate_limit_exceeded",
+					"message":     "Too many failed administrative authorization attempts. Please try again later.",
+					"retry_after": 60,
+				})
+				return
+			}
+		}
+
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
@@ -188,6 +218,12 @@ func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+
+		// Failed authentication: consume failure rate limit and log security alert
+		if !disabled {
+			limiter.Allow()
+		}
+		log.Printf("[SECURITY WARNING] Failed admin authorization attempt from IP=%s path=%s", clientIP, c.Request.URL.Path)
 
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
 			"error":   "forbidden",

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bayesmarket/bayesmarket/internal/config"
 	"github.com/bayesmarket/bayesmarket/internal/database"
+	"github.com/bayesmarket/bayesmarket/internal/testutil"
 	"github.com/bayesmarket/bayesmarket/internal/transport/rest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -18,16 +18,13 @@ import (
 )
 
 func TestAuthHandler_GuestAndGoogleOAuth(t *testing.T) {
-	cfg, err := config.Load()
-	if err != nil || cfg.DatabaseURL == "" {
-		t.Skip("Skipping AuthHandler tests: DATABASE_URL not set")
-	}
-	cfg.DisableRateLimits = true
+	dbURL := testutil.SafeTestDatabaseURL(t)
+	cfg := testutil.TestConfig(dbURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	pool, err := database.NewPool(ctx, cfg.DatabaseURL)
+	pool, err := database.NewPool(ctx, dbURL)
 	if err != nil {
 		t.Skipf("Skipping AuthHandler tests: cannot connect to database: %v", err)
 	}
