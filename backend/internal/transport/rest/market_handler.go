@@ -329,12 +329,14 @@ func (h *MarketHandler) HandleMarketQuote(c *gin.Context) {
 		return
 	}
 
-	// 1. Check in-memory pool reserves first for sub-millisecond calculation
+	// 1. Check in-memory pool reserves first for sub-millisecond calculation (unless fresh quote requested)
 	var marketUUID uuid.UUID
 	var poolReserves amm.PoolReserves
 	var foundInCache bool
 
-	if h.cache != nil {
+	forceFresh := c.Query("fresh") == "true" || c.GetHeader("Cache-Control") == "no-cache"
+
+	if h.cache != nil && !forceFresh {
 		if _, cachedReserves, cachedUUID, ok := h.cache.GetMarket(marketIDParam); ok && cachedReserves != nil && cachedUUID != nil {
 			marketUUID = *cachedUUID
 			poolReserves = *cachedReserves

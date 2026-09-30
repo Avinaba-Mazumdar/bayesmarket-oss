@@ -24,7 +24,7 @@ describe('BrandIconComponent', () => {
     it('should render correct size dimensions', () => {
         fixture.componentRef.setInput('size', 'lg');
         fixture.detectChanges();
-        const wrapper = fixture.nativeElement.querySelector('.brand-icon-wrapper');
+        const wrapper = fixture.nativeElement.querySelector('.brand-icon-box');
         expect(wrapper.style.width).toBe('44px');
         expect(wrapper.style.height).toBe('44px');
     });
@@ -32,7 +32,7 @@ describe('BrandIconComponent', () => {
     it('should apply glow class when glow input is true', () => {
         fixture.componentRef.setInput('glow', true);
         fixture.detectChanges();
-        const wrapper = fixture.nativeElement.querySelector('.brand-icon-wrapper');
+        const wrapper = fixture.nativeElement.querySelector('.brand-icon-box');
         expect(wrapper.classList.contains('has-glow')).toBe(true);
     });
 });

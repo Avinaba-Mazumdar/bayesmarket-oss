@@ -59,7 +59,7 @@ func (h *Hub) Run() {
 		case <-h.shutdown:
 			h.mu.Lock()
 			for client := range h.clients {
-				close(client.send)
+				client.Close()
 				delete(h.clients, client)
 			}
 			h.globalClients = make(map[*Client]bool)
@@ -132,7 +132,7 @@ func (h *Hub) Run() {
 	}
 }
 
-// removeClient removes a client from the hub and closes its send channel.
+// removeClient removes a client from the hub and cleanly terminates its connection.
 // Must be called with h.mu write lock held.
 func (h *Hub) removeClient(client *Client) {
 	if _, ok := h.clients[client]; ok {
@@ -146,7 +146,7 @@ func (h *Hub) removeClient(client *Client) {
 				}
 			}
 		}
-		close(client.send)
+		client.Close()
 	}
 }
 

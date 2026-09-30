@@ -104,6 +104,41 @@ export interface OrderIntent {
                 <app-button variant="chip" size="sm" ariaLabel="Clear amount" (btnClick)="clearAmount()"> Clear </app-button>
             </div>
 
+            <!-- User-Editable Slippage Tolerance Setting (Issue 10) -->
+            <div class="slippage-setting-section">
+                <div class="slippage-setting-header">
+                    <span class="slippage-setting-title">Max Slippage Tolerance</span>
+                    <span class="slippage-setting-current tabular-nums">{{ maxSlippageTolerancePct() }}%</span>
+                </div>
+                <div class="slippage-presets-row" role="group" aria-label="Slippage tolerance presets">
+                    @for (preset of slippagePresets; track preset) {
+                        <app-button
+                            variant="chip"
+                            size="sm"
+                            [selected]="maxSlippageTolerancePct() === preset"
+                            ariaLabel="Set max slippage to {{ preset }}%"
+                            (btnClick)="setSlippage(preset)"
+                        >
+                            {{ preset }}%
+                        </app-button>
+                    }
+                    <div class="custom-slippage-wrapper">
+                        <input
+                            type="number"
+                            step="0.1"
+                            min="0.1"
+                            max="50"
+                            class="custom-slippage-input"
+                            [value]="maxSlippageTolerancePct()"
+                            (input)="onSlippageInput($event)"
+                            placeholder="Custom"
+                            aria-label="Custom slippage percentage"
+                        />
+                        <span class="percent-suffix">%</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Execution Estimate Breakdown (Authoritative CPMM Quote) -->
             <div class="quote-drawer" [class.loading]="isLoadingQuote()">
                 <div class="quote-row">
@@ -369,6 +404,85 @@ export interface OrderIntent {
                 flex-wrap: wrap;
             }
 
+            .slippage-setting-section {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                padding: 10px 12px;
+                background-color: var(--canvas-subtle, #0e0c1c);
+                border: 1px solid var(--hairline, #252140);
+                border-radius: var(--radius-md, 10px);
+            }
+
+            .slippage-setting-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+            }
+
+            .slippage-setting-title {
+                font-family: var(--font-ui);
+                font-size: 11.5px;
+                font-weight: 600;
+                color: var(--muted, #9d97b8);
+            }
+
+            .slippage-setting-current {
+                font-family: var(--font-mono);
+                font-size: 11.5px;
+                font-weight: 700;
+                color: var(--ink, #f8f7ff);
+            }
+
+            .slippage-presets-row {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                flex-wrap: wrap;
+            }
+
+            .custom-slippage-wrapper {
+                display: flex;
+                align-items: center;
+                background-color: var(--canvas, #080613);
+                border: 1px solid var(--hairline, #252140);
+                border-radius: var(--radius-sm, 6px);
+                padding: 2px 6px;
+                gap: 2px;
+                height: 28px;
+                box-sizing: border-box;
+                transition: border-color 0.15s ease;
+            }
+
+            .custom-slippage-wrapper:focus-within {
+                border-color: var(--primary-border, #7c4dff);
+            }
+
+            .custom-slippage-input {
+                width: 38px;
+                background: transparent;
+                border: none;
+                color: var(--ink, #f8f7ff);
+                font-family: var(--font-mono);
+                font-size: 11.5px;
+                font-weight: 600;
+                outline: none;
+                text-align: right;
+                -moz-appearance: textfield;
+            }
+
+            .custom-slippage-input::-webkit-outer-spin-button,
+            .custom-slippage-input::-webkit-inner-spin-button {
+                -webkit-appearance: none;
+                margin: 0;
+            }
+
+            .percent-suffix {
+                font-family: var(--font-mono);
+                font-size: 11px;
+                color: var(--muted, #9d97b8);
+            }
+
             .quote-drawer {
                 background-color: var(--canvas-subtle, #0e0c1c);
                 border: 1px solid var(--hairline, #252140);
@@ -480,6 +594,20 @@ export class OrderTerminalComponent {
     readonly selectedOutcome = signal<'YES' | 'NO'>('YES');
     readonly amountInput = signal<string>('50');
     readonly maxSlippageTolerancePct = signal<string>('1.00');
+    readonly slippagePresets: readonly string[] = ['0.5', '1.0', '2.0', '5.0'];
+
+    setSlippage(preset: string): void {
+        this.maxSlippageTolerancePct.set(preset);
+    }
+
+    onSlippageInput(event: Event): void {
+        const input = event.target as HTMLInputElement;
+        if (!input) return;
+        const val = parseFloat(input.value);
+        if (!isNaN(val) && val >= 0.1 && val <= 50) {
+            this.maxSlippageTolerancePct.set(val.toFixed(1));
+        }
+    }
 
     readonly latestQuote = signal<BuyQuoteResponse | null>(null);
     readonly isLoadingQuote = signal<boolean>(false);
@@ -668,11 +796,11 @@ export class OrderTerminalComponent {
             return;
         }
 
-        // 1. Client-Side Cache Check (5s TTL)
+        // 1. Client-Side Cache Check (1s TTL to prevent confirm-time staleness)
         const cacheKey = `${marketId}:${outcome}:${amtNum.toFixed(2)}`;
         const now = Date.now();
         const cached = this.quoteCache.get(cacheKey);
-        if (cached && now - cached.timestamp < 5000) {
+        if (cached && now - cached.timestamp < 1000) {
             this.latestQuote.set(cached.quote);
             this.isLoadingQuote.set(false);
             return;
@@ -731,26 +859,71 @@ export class OrderTerminalComponent {
             return;
         }
 
-        const quote = this.latestQuote();
         const m = this.market();
-        if (!quote || !m || this.isTradeDisabled()) return;
+        if (!m || this.isTradeDisabled()) return;
 
-        const currentBalStr = this.authStore.cashBalance();
-        const currentBalNum = parseFloat(currentBalStr.replace(/[$,]/g, ''));
         const tradeAmt = this.currentNumericAmount();
-        const postBalNum = Math.max(0, currentBalNum - tradeAmt);
-        const postTradeBalStr = `$${postBalNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        this.isLoadingQuote.set(true);
 
-        this.orderReviewRequested.emit({
-            marketId: m.id,
-            marketTitle: m.title,
-            outcome: this.selectedOutcome(),
-            amountUSDC: tradeAmt.toFixed(8),
-            quote: quote,
-            maxSlippagePct: this.maxSlippageTolerancePct(),
-            currentBalance: currentBalStr,
-            postTradeBalance: postTradeBalStr
-        });
+        // Clear quote cache to guarantee up-to-date CPMM quote for confirmation review
+        this.quoteCache.clear();
+
+        // Fresh un-cached execution quote to prevent review price drift (Issue 11)
+        this.apiService
+            .getQuote(
+                m.id,
+                {
+                    action: 'BUY',
+                    outcome: this.selectedOutcome(),
+                    amount_usdc: tradeAmt.toFixed(8)
+                },
+                true // fresh quote bypassing server and client cache
+            )
+            .pipe(takeUntilDestroyed(this.destroyRef))
+            .subscribe({
+                next: (freshQuote) => {
+                    this.isLoadingQuote.set(false);
+                    this.latestQuote.set(freshQuote);
+
+                    const currentBalStr = this.authStore.cashBalance();
+                    const currentBalNum = parseFloat(currentBalStr.replace(/[$,]/g, ''));
+                    const postBalNum = Math.max(0, currentBalNum - tradeAmt);
+                    const postTradeBalStr = `$${postBalNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+                    this.orderReviewRequested.emit({
+                        marketId: m.id,
+                        marketTitle: m.title,
+                        outcome: this.selectedOutcome(),
+                        amountUSDC: tradeAmt.toFixed(8),
+                        quote: freshQuote,
+                        maxSlippagePct: this.maxSlippageTolerancePct(),
+                        currentBalance: currentBalStr,
+                        postTradeBalance: postTradeBalStr
+                    });
+                },
+                error: (err) => {
+                    this.isLoadingQuote.set(false);
+                    console.warn('Confirm-time fresh quote fetch failed, falling back to latest quote:', err);
+                    const fallbackQuote = this.latestQuote();
+                    if (!fallbackQuote) return;
+
+                    const currentBalStr = this.authStore.cashBalance();
+                    const currentBalNum = parseFloat(currentBalStr.replace(/[$,]/g, ''));
+                    const postBalNum = Math.max(0, currentBalNum - tradeAmt);
+                    const postTradeBalStr = `$${postBalNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+                    this.orderReviewRequested.emit({
+                        marketId: m.id,
+                        marketTitle: m.title,
+                        outcome: this.selectedOutcome(),
+                        amountUSDC: tradeAmt.toFixed(8),
+                        quote: fallbackQuote,
+                        maxSlippagePct: this.maxSlippageTolerancePct(),
+                        currentBalance: currentBalStr,
+                        postTradeBalance: postTradeBalStr
+                    });
+                }
+            });
     }
 
     focusAmountInput(): void {

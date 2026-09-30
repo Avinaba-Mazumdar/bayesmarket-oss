@@ -12,6 +12,7 @@ export type BrandIconSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number;
     template: `
         <div
             class="brand-icon-box"
+            [class.has-glow]="glow()"
             [style.width.px]="pixelSize()"
             [style.height.px]="pixelSize()"
             role="img"

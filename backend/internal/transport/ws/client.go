@@ -2,6 +2,7 @@ package ws
 
 import (
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -40,6 +41,12 @@ type Client struct {
 
 	// onClose optional cleanup callback when connection terminates.
 	onClose func()
+
+	// done signals connection termination to internal pumps.
+	done chan struct{}
+
+	// closeOnce ensures connection and done channel are closed exactly once.
+	closeOnce sync.Once
 }
 
 // NewClient constructs a new WebSocket client instance.
@@ -49,12 +56,21 @@ func NewClient(hub *Hub, conn *websocket.Conn, marketID string) *Client {
 		conn:     conn,
 		send:     make(chan []byte, sendBufferSize),
 		marketID: marketID,
+		done:     make(chan struct{}),
 	}
 }
 
 // SetOnClose registers a callback invoked when the client disconnects.
 func (c *Client) SetOnClose(fn func()) {
 	c.onClose = fn
+}
+
+// Close gracefully closes the client connection and signals pump termination.
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		_ = c.conn.Close()
+	})
 }
 
 // readPump pumps messages from the websocket connection to the hub.
@@ -64,8 +80,9 @@ func (c *Client) readPump() {
 		select {
 		case c.hub.unregister <- c:
 		case <-c.hub.shutdown:
+		case <-c.done:
 		}
-		c.conn.Close()
+		c.Close()
 		if c.onClose != nil {
 			c.onClose()
 		}
@@ -97,18 +114,18 @@ func (c *Client) writePump() {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		c.Close()
 	}()
 
 	for {
 		select {
+		case <-c.done:
+			return
 		case message, ok := <-c.send:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 			if !ok {
-				// The hub closed the channel.
-				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
 
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {

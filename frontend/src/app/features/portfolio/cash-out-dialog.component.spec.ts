@@ -73,7 +73,7 @@ describe('CashOutDialogComponent', () => {
         expect(el.querySelector('.highlight-val')?.textContent?.trim()).toBe('$65.00 USDC');
 
         const rows = el.querySelectorAll('.financial-table .table-row');
-        expect(rows.length).toBe(4);
+        expect(rows.length).toBe(5);
     });
 
     it('should dismiss dialog when Cancel is clicked', () => {
@@ -102,7 +102,8 @@ describe('CashOutDialogComponent', () => {
             {
                 market_id: mockPosition.market_id,
                 outcome: 'YES',
-                shares: '100.00000000'
+                shares: '100.00000000',
+                min_payout_usdc: '63.70000000'
             },
             'test-auth-token',
             expect.any(String)

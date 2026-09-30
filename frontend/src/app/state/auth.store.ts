@@ -41,15 +41,42 @@ export class AuthStore {
     }
 
     private getInitialToken(): string | null {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            return localStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+        if (typeof window !== 'undefined') {
+            if (window.sessionStorage) {
+                const sessionToken = sessionStorage.getItem(TOKEN_STORAGE_KEY) || sessionStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+                if (sessionToken) return sessionToken;
+            }
+            if (window.localStorage) {
+                const localToken = localStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem(LEGACY_TOKEN_STORAGE_KEY);
+                if (localToken) {
+                    // Migrate to sessionStorage and purge from localStorage to eliminate long-term disk exposure
+                    if (window.sessionStorage) {
+                        sessionStorage.setItem(TOKEN_STORAGE_KEY, localToken);
+                    }
+                    localStorage.removeItem(TOKEN_STORAGE_KEY);
+                    localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+                    return localToken;
+                }
+            }
         }
         return null;
     }
 
     private getInitialProfile(): UserProfile | null {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            const raw = localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+        if (typeof window !== 'undefined') {
+            let raw: string | null = null;
+            if (window.sessionStorage) {
+                raw = sessionStorage.getItem(USER_PROFILE_STORAGE_KEY);
+            }
+            if (!raw && window.localStorage) {
+                raw = localStorage.getItem(USER_PROFILE_STORAGE_KEY);
+                if (raw) {
+                    if (window.sessionStorage) {
+                        sessionStorage.setItem(USER_PROFILE_STORAGE_KEY, raw);
+                    }
+                    localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+                }
+            }
             if (raw) {
                 try {
                     return JSON.parse(raw);
@@ -62,10 +89,24 @@ export class AuthStore {
     }
 
     private getInitialBalance(): string {
-        if (typeof window !== 'undefined' && window.localStorage) {
+        if (typeof window !== 'undefined') {
+            if (window.sessionStorage) {
+                const bal = sessionStorage.getItem(BALANCE_STORAGE_KEY);
+                if (bal) return bal;
+            }
+            if (window.localStorage) {
+                const bal = localStorage.getItem(BALANCE_STORAGE_KEY);
+                if (bal) {
+                    if (window.sessionStorage) {
+                        sessionStorage.setItem(BALANCE_STORAGE_KEY, bal);
+                    }
+                    localStorage.removeItem(BALANCE_STORAGE_KEY);
+                    return bal;
+                }
+            }
             const token = this.getInitialToken();
             if (token) {
-                return localStorage.getItem(BALANCE_STORAGE_KEY) || '$1,000.00';
+                return '$1,000.00';
             }
             return '$0.00';
         }
@@ -250,12 +291,17 @@ export class AuthStore {
     }
 
     /**
-     * Updates cash balance in state and localStorage.
+     * Updates cash balance in state and sessionStorage.
      */
     updateBalance(formattedBalance: string): void {
         this.cashBalance.set(formattedBalance);
-        if (typeof window !== 'undefined' && window.localStorage) {
-            localStorage.setItem(BALANCE_STORAGE_KEY, formattedBalance);
+        if (typeof window !== 'undefined') {
+            if (window.sessionStorage) {
+                sessionStorage.setItem(BALANCE_STORAGE_KEY, formattedBalance);
+            }
+            if (window.localStorage) {
+                localStorage.removeItem(BALANCE_STORAGE_KEY);
+            }
         }
     }
 
@@ -280,8 +326,13 @@ export class AuthStore {
                 if (currentUser) {
                     const updatedProfile = { ...currentUser, cash_balance: rawBalance };
                     this.user.set(updatedProfile);
-                    if (typeof window !== 'undefined' && window.localStorage) {
-                        localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(updatedProfile));
+                    if (typeof window !== 'undefined') {
+                        if (window.sessionStorage) {
+                            sessionStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(updatedProfile));
+                        }
+                        if (window.localStorage) {
+                            localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+                        }
                     }
                 }
 
@@ -306,18 +357,34 @@ export class AuthStore {
     }
 
     private persistSession(token: string, profile: UserProfile): void {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            localStorage.setItem(TOKEN_STORAGE_KEY, token);
-            localStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+        if (typeof window !== 'undefined') {
+            if (window.sessionStorage) {
+                sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
+                sessionStorage.setItem(USER_PROFILE_STORAGE_KEY, JSON.stringify(profile));
+            }
+            // Clear any lingering localStorage records to mitigate XSS exposure
+            if (window.localStorage) {
+                localStorage.removeItem(TOKEN_STORAGE_KEY);
+                localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+                localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+            }
         }
     }
 
     private clearSession(): void {
-        if (typeof window !== 'undefined' && window.localStorage) {
-            localStorage.removeItem(TOKEN_STORAGE_KEY);
-            localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
-            localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
-            localStorage.removeItem(BALANCE_STORAGE_KEY);
+        if (typeof window !== 'undefined') {
+            if (window.sessionStorage) {
+                sessionStorage.removeItem(TOKEN_STORAGE_KEY);
+                sessionStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+                sessionStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+                sessionStorage.removeItem(BALANCE_STORAGE_KEY);
+            }
+            if (window.localStorage) {
+                localStorage.removeItem(TOKEN_STORAGE_KEY);
+                localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
+                localStorage.removeItem(USER_PROFILE_STORAGE_KEY);
+                localStorage.removeItem(BALANCE_STORAGE_KEY);
+            }
         }
         this.token.set(null);
         this.user.set(null);

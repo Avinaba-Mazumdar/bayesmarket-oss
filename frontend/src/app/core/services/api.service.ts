@@ -110,8 +110,12 @@ export class ApiService {
     /**
      * Get an authoritative execution quote for BUY/SELL.
      */
-    getQuote(marketId: string, request: QuoteRequest): Observable<BuyQuoteResponse> {
-        return this.http.post<BuyQuoteResponse>(`${this.baseUrl}/markets/${encodeURIComponent(marketId)}/quote`, request);
+    getQuote(marketId: string, request: QuoteRequest, fresh = false): Observable<BuyQuoteResponse> {
+        const url = fresh
+            ? `${this.baseUrl}/markets/${encodeURIComponent(marketId)}/quote?fresh=true`
+            : `${this.baseUrl}/markets/${encodeURIComponent(marketId)}/quote`;
+        const headers = fresh ? new HttpHeaders({ 'Cache-Control': 'no-cache' }) : undefined;
+        return this.http.post<BuyQuoteResponse>(url, request, { headers });
     }
 
     /**

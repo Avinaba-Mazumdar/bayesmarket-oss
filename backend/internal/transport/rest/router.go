@@ -183,8 +183,8 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		quoteLimiter.SetDisabled(true)
 	}
 
-	// In-memory read-through cache (5-second TTL, event-invalidated on trades/settlements)
-	marketCache := NewMarketCache(5 * time.Second)
+	// In-memory read-through cache (1-second TTL, event-invalidated on trades/settlements)
+	marketCache := NewMarketCache(1 * time.Second)
 
 	// Handlers
 	authHandler := NewAuthHandler(pool, cfg)

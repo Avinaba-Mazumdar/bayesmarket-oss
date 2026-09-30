@@ -983,7 +983,7 @@ func (h *AuthHandler) generateJWT(userID string, isGuest bool, email string, nam
 			Issuer:    "bayesmarket",
 			Subject:   userID,
 			IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
-			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(24 * time.Hour)), // 24-hour session
+			ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(1 * time.Hour)), // 1-hour session to mitigate non-revocable token blast radius
 		},
 	}
 
