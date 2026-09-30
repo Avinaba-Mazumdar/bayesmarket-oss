@@ -240,11 +240,19 @@ A NO purchase is symmetric: add $d$ to both inventories, set $R_{\text{YES}}' = 
 5. Effective selling price:
    $$\bar{P}_{\text{sell}} = \frac{d}{s}$$
 
-#### 5. Settlement & Resolution Payout
+#### 5. Settlement & Resolution Payout & Trust Model
 
-- Each winning share is unconditionally redeemable for **$1.00 USDC** from the market collateral reserve.
-- Losing shares expire at **$0.00 USDC**.
-- Payout = $\text{Shares}_{\text{winning}} \times 1.00$; settlement creates immutable ledger entries for every credited holder.
+- **Paper Trading Trust Model**: BayesMarket is an open-source paper-trading and educational simulation platform. Market resolutions are admin-mediated via authorized credentials (`ADMIN_TOKEN`). Unlike decentralized oracles (e.g., UMA or Chainlink), the administrator or automated ingest pipeline is trusted to authoritatively declare market outcomes based on real-world evidence.
+- **Cryptographic Proof Hashing & Audit Digest**:
+    - Every resolution requires verifiable `oracle_proof` documentation (e.g., official bureau reports, market index settlement prices, regulatory filings).
+    - The server computes a SHA-256 hash of the proof (`proof_hash = SHA256(oracle_proof)`).
+    - An atomic settlement payload digest is generated: `settlement_digest = SHA256(market_id : winning_outcome : total_payout : proof_hash : resolved_at)`.
+    - Resolutions emit structured audit logs (`[AUTHORITATIVE RESOLUTION AUDIT]`) and attribute actions deterministically to the System Administrator identity (`00000000-0000-0000-0000-000000000001`), ensuring all settlements are auditable in immutable double-entry ledger entries.
+    - An in-memory resolution cache enforces proof integrity, rejecting any subsequent calls with conflicting outcomes or divergent proof hashes.
+- **Collateral & Share Redemption**:
+    - Each winning share is unconditionally redeemable for **$1.00 USDC** from the market collateral reserve.
+    - Losing shares expire at **$0.00 USDC**.
+    - Payout = $\text{Shares}_{\text{winning}} \times 1.00$; settlement executes in a `SERIALIZABLE` database transaction, crediting winning cash balances, zeroing winning/losing positions, and debiting the pool collateral reserve.
 
 ---
 

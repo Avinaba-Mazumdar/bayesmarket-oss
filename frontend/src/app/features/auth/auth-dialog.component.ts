@@ -603,6 +603,10 @@ export class AuthDialogComponent {
                             this.toastService.error('OAuth Error', 'Google OAuth is not configured in this environment');
                         }
                     } else {
+                        // Store OAuth state in sessionStorage for CSRF validation upon callback
+                        if (res.state && typeof window !== 'undefined' && window.sessionStorage) {
+                            sessionStorage.setItem('bayesmarket_oauth_state', res.state);
+                        }
                         // Real Google OAuth redirect flow
                         window.location.href = res.url;
                     }

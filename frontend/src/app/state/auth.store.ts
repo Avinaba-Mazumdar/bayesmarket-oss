@@ -1,7 +1,8 @@
 import { computed, inject, Injectable, signal } from '@angular/core';
+import { Observable, tap } from 'rxjs';
 import { ApiService } from '../core/services/api.service';
 import { ToastService } from '../shared/components/toast/toast.service';
-import { UserProfile } from '../core/models/market.model';
+import { AuthResponse, UserProfile } from '../core/models/market.model';
 
 const TOKEN_STORAGE_KEY = 'bayesmarket_auth_token';
 const LEGACY_TOKEN_STORAGE_KEY = 'bayesmarket_guest_token';
@@ -187,6 +188,37 @@ export class AuthStore {
                 this.toastService.error('Authentication Error', msg);
             }
         });
+    }
+
+    /**
+     * Completes OAuth 2.0 redirect flow by exchanging code and state.
+     */
+    loginWithGoogleCallback(code: string, state?: string): Observable<AuthResponse> {
+        this.isAuthenticating.set(true);
+        const guestToken = this.isGuest() ? this.token() : null;
+
+        return this.apiService.callbackGoogleAuth({ code, state }, guestToken).pipe(
+            tap({
+                next: (res) => {
+                    if (res && res.user) {
+                        this.token.set(res.token);
+                        this.user.set(res.user);
+                        this.userId.set(res.user.id);
+                        const formattedBalance = this.formatBalance(res.user.cash_balance ?? '1000.00');
+                        this.updateBalance(formattedBalance);
+                        this.persistSession(res.token, res.user);
+                    }
+                    this.isAuthenticating.set(false);
+                    this.isAuthModalOpen.set(false);
+                    this.toastService.success('Signed in with Google', `Welcome, ${res.user.name || res.user.email || 'Trader'}! Your account is connected.`);
+                },
+                error: (err) => {
+                    this.isAuthenticating.set(false);
+                    const msg = err?.error?.message || 'Failed to authenticate with Google';
+                    this.toastService.error('Authentication Error', msg);
+                }
+            })
+        );
     }
 
     /**

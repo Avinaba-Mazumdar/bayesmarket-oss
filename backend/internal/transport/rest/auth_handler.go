@@ -2,13 +2,21 @@ package rest
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bayesmarket/bayesmarket/internal/config"
@@ -21,6 +29,9 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+// ErrAccountConflict is returned when attempting to associate an identity with an email that is already registered to a different user.
+var ErrAccountConflict = errors.New("an account with this email already exists; please sign in with your primary credential to link identities")
+
 // AuthHandler handles user registration, guest sessions, Google OAuth, and profile management.
 type AuthHandler struct {
 	pool               *pgxpool.Pool
@@ -30,6 +41,10 @@ type AuthHandler struct {
 	googleRedirectURI  string
 	httpClient         *http.Client
 	isDevOrLocal       bool
+
+	jwksMu     sync.RWMutex
+	jwksKeys   map[string]*rsa.PublicKey
+	jwksExpiry time.Time
 }
 
 // NewAuthHandler constructs an AuthHandler with configuration.
@@ -38,7 +53,7 @@ func NewAuthHandler(pool *pgxpool.Pool, cfg *config.Config) *AuthHandler {
 	googleClientSecret := ""
 	googleRedirectURI := "http://localhost:4200/auth/callback"
 	jwtSecret := "bayesmarket-development-hmac-sha256-default-secret-key-32b"
-	isDevOrLocal := true
+	isDevOrLocal := false
 
 	if cfg != nil {
 		if cfg.JWTSecret != "" {
@@ -59,6 +74,7 @@ func NewAuthHandler(pool *pgxpool.Pool, cfg *config.Config) *AuthHandler {
 		googleClientSecret: googleClientSecret,
 		googleRedirectURI:  googleRedirectURI,
 		isDevOrLocal:       isDevOrLocal,
+		jwksKeys:           make(map[string]*rsa.PublicKey),
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -93,9 +109,10 @@ type GoogleVerifyRequest struct {
 	Name    string `json:"name,omitempty"`
 }
 
-// GoogleCallbackRequest payload containing authorization code.
+// GoogleCallbackRequest payload containing authorization code and state.
 type GoogleCallbackRequest struct {
-	Code string `json:"code" binding:"required"`
+	Code  string `json:"code" binding:"required"`
+	State string `json:"state"`
 }
 
 // GoogleTokenInfo represents Google's public tokeninfo response.
@@ -224,7 +241,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 			})
 			return
 		}
-		googleID = "google-mock-" + uuid.New().String()[:8]
+		googleID = "google-mock-" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDToken)))[:16]
 		email = "trader@bayesmarket.com"
 		if req.Email != "" {
 			email = req.Email
@@ -242,7 +259,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 			})
 			return
 		}
-		googleID = "google-mock-" + uuid.New().String()[:8]
+		googleID = "google-mock-" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDToken)))[:16]
 		email = "trader@bayesmarket.com"
 		if req.Email != "" {
 			email = req.Email
@@ -279,6 +296,13 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 
 	user, err := h.upsertGoogleUser(ctx, c, googleID, email, name, avatarURL)
 	if err != nil {
+		if errors.Is(err, ErrAccountConflict) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "account_conflict",
+				"message": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
 			"message": "Failed to authenticate user profile",
@@ -323,7 +347,7 @@ func (h *AuthHandler) HandleGoogleAuthURL(c *gin.Context) {
 		return
 	}
 
-	state := uuid.New().String()
+	state := h.generateOAuthState()
 	redirectURI := url.QueryEscape(h.googleRedirectURI)
 	scope := url.QueryEscape("openid email profile")
 
@@ -342,6 +366,52 @@ func (h *AuthHandler) HandleGoogleAuthURL(c *gin.Context) {
 	})
 }
 
+// generateOAuthState produces a cryptographically HMAC-SHA256 signed, timestamped state token.
+func (h *AuthHandler) generateOAuthState() string {
+	timestamp := time.Now().Unix()
+	nonce := uuid.New().String()
+	data := fmt.Sprintf("%s:%d", nonce, timestamp)
+	mac := hmac.New(sha256.New, []byte(h.jwtSecret))
+	mac.Write([]byte(data))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return fmt.Sprintf("%s.%s", base64.RawURLEncoding.EncodeToString([]byte(data)), sig)
+}
+
+// validateOAuthState validates that the provided state token was signed with jwtSecret and has not expired.
+func (h *AuthHandler) validateOAuthState(state string) bool {
+	if state == "" {
+		return false
+	}
+	parts := strings.Split(state, ".")
+	if len(parts) != 2 {
+		return false
+	}
+	dataBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(h.jwtSecret))
+	mac.Write(dataBytes)
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(parts[1]), []byte(expectedSig)) {
+		return false
+	}
+	subParts := strings.Split(string(dataBytes), ":")
+	if len(subParts) != 2 {
+		return false
+	}
+	ts, err := strconv.ParseInt(subParts[1], 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().Unix()
+	// State is valid for 15 minutes (900 seconds), allow 60 seconds future clock skew
+	if (now-ts) > 900 || (ts-now) > 60 {
+		return false
+	}
+	return true
+}
+
 // HandleGoogleAuthCallback exchanges an OAuth 2.0 authorization code for tokens and authenticates the user.
 //
 // POST /api/v1/auth/google/callback
@@ -355,11 +425,31 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 		return
 	}
 
+	// Validate OAuth state parameter to prevent cross-site request forgery
+	if req.State == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid_state",
+			"message": "OAuth state parameter is required",
+		})
+		return
+	}
+
+	isMockCode := strings.HasPrefix(req.Code, "mock-")
+	if !h.validateOAuthState(req.State) {
+		if !(h.isDevOrLocal && (req.State == "mock-state" || isMockCode)) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid_state",
+				"message": "OAuth state is invalid or has expired",
+			})
+			return
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	// If dev mode or mock code, bypass with mock user (only allowed in local/dev)
-	if h.googleClientID == "" || strings.HasPrefix(req.Code, "mock-") {
+	if h.googleClientID == "" || isMockCode {
 		if !h.isDevOrLocal {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error":   "dev_mode_disabled",
@@ -367,8 +457,16 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 			})
 			return
 		}
-		user, err := h.upsertGoogleUser(ctx, c, "google-mock-cb", "oauth.trader@bayesmarket.com", "OAuth Trader", "")
+		mockGoogleID := "google-mock-" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.Code)))[:16]
+		user, err := h.upsertGoogleUser(ctx, c, mockGoogleID, "oauth.trader@bayesmarket.com", "OAuth Trader", "")
 		if err != nil {
+			if errors.Is(err, ErrAccountConflict) {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":   "account_conflict",
+					"message": err.Error(),
+				})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to create user session"})
 			return
 		}
@@ -420,6 +518,13 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 	user, err := h.upsertGoogleUser(ctx, c, tokenInfo.Sub, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture)
 	if err != nil {
 		log.Printf("[Auth GoogleLogin] user profile upsert error: %v", err)
+		if errors.Is(err, ErrAccountConflict) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "account_conflict",
+				"message": err.Error(),
+			})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "database_error",
 			"message": "Failed to create or update user profile",
@@ -517,39 +622,185 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 	})
 }
 
-// verifyGoogleIDToken calls Google's tokeninfo endpoint to authenticate the ID token.
-func (h *AuthHandler) verifyGoogleIDToken(ctx context.Context, idToken string) (*GoogleTokenInfo, error) {
-	verifyURL := "https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(idToken)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, verifyURL, nil)
+// GoogleJWKSURL is the Google public certificates endpoint for RS256 ID token verification.
+var GoogleJWKSURL = "https://www.googleapis.com/oauth2/v3/certs"
+
+// getGooglePublicKey fetches and caches Google's public RSA keys from its official JWKS endpoint.
+func (h *AuthHandler) getGooglePublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	h.jwksMu.RLock()
+	if time.Now().Before(h.jwksExpiry) {
+		if key, ok := h.jwksKeys[kid]; ok {
+			h.jwksMu.RUnlock()
+			return key, nil
+		}
+	}
+	h.jwksMu.RUnlock()
+
+	h.jwksMu.Lock()
+	defer h.jwksMu.Unlock()
+
+	// Recheck cache under write lock
+	if time.Now().Before(h.jwksExpiry) {
+		if key, ok := h.jwksKeys[kid]; ok {
+			return key, nil
+		}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, GoogleJWKSURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create JWKS request: %w", err)
 	}
 
 	resp, err := h.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("network error during Google token verification: %w", err)
+		return nil, fmt.Errorf("network error fetching Google JWKS: %w", err)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read Google verification response: %w", err)
-	}
-
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Google token verification failed with status %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, fmt.Errorf("Google JWKS endpoint returned status %d", resp.StatusCode)
 	}
 
-	var tokenInfo GoogleTokenInfo
-	if err := json.Unmarshal(bodyBytes, &tokenInfo); err != nil {
-		return nil, fmt.Errorf("failed to parse Google tokeninfo payload: %w", err)
+	var jwks struct {
+		Keys []struct {
+			Kty string `json:"kty"`
+			Alg string `json:"alg"`
+			Use string `json:"use"`
+			Kid string `json:"kid"`
+			N   string `json:"n"`
+			E   string `json:"e"`
+		} `json:"keys"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&jwks); err != nil {
+		return nil, fmt.Errorf("failed to parse Google JWKS JSON: %w", err)
 	}
 
-	if tokenInfo.Email == "" || tokenInfo.Sub == "" {
-		return nil, fmt.Errorf("Google tokeninfo missing email or sub identifier")
+	newKeys := make(map[string]*rsa.PublicKey)
+	for _, k := range jwks.Keys {
+		if k.Kty != "RSA" {
+			continue
+		}
+		nBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(k.N, "="))
+		if err != nil {
+			continue
+		}
+		eBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(k.E, "="))
+		if err != nil {
+			continue
+		}
+		var eInt int
+		for _, b := range eBytes {
+			eInt = (eInt << 8) | int(b)
+		}
+		newKeys[k.Kid] = &rsa.PublicKey{
+			N: new(big.Int).SetBytes(nBytes),
+			E: eInt,
+		}
 	}
 
-	return &tokenInfo, nil
+	h.jwksKeys = newKeys
+
+	// Parse max-age from Cache-Control header, default to 1 hour
+	ttl := 1 * time.Hour
+	cacheControl := resp.Header.Get("Cache-Control")
+	if cacheControl != "" {
+		for _, part := range strings.Split(cacheControl, ",") {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(part, "max-age=") {
+				if secs, err := strconv.Atoi(strings.TrimPrefix(part, "max-age=")); err == nil && secs > 0 {
+					ttl = time.Duration(secs) * time.Second
+				}
+			}
+		}
+	}
+	h.jwksExpiry = time.Now().Add(ttl)
+
+	key, ok := h.jwksKeys[kid]
+	if !ok {
+		return nil, fmt.Errorf("key id %q not found in Google JWKS", kid)
+	}
+	return key, nil
+}
+
+// verifyGoogleIDToken cryptographically verifies a Google ID token against Google's JWKS public keys,
+// strictly checking RS256 signature, issuer, audience, and email_verified claim.
+func (h *AuthHandler) verifyGoogleIDToken(ctx context.Context, idToken string) (*GoogleTokenInfo, error) {
+	if h.isDevOrLocal && (strings.HasPrefix(idToken, "mock-") || strings.HasPrefix(idToken, "dev-")) {
+		return &GoogleTokenInfo{
+			Sub:           "google-mock-" + fmt.Sprintf("%x", sha256.Sum256([]byte(idToken)))[:16],
+			Email:         "trader@bayesmarket.com",
+			EmailVerified: "true",
+			Name:          "Institutional Trader",
+			Aud:           h.googleClientID,
+		}, nil
+	}
+
+	parsedToken, err := jwt.Parse(idToken, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		kid, ok := token.Header["kid"].(string)
+		if !ok || kid == "" {
+			return nil, errors.New("missing kid header in Google ID token")
+		}
+		return h.getGooglePublicKey(ctx, kid)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("cryptographic token verification failed: %w", err)
+	}
+
+	claims, ok := parsedToken.Claims.(jwt.MapClaims)
+	if !ok || !parsedToken.Valid {
+		return nil, errors.New("invalid token claims")
+	}
+
+	// Validate Issuer
+	iss, _ := claims["iss"].(string)
+	if iss != "accounts.google.com" && iss != "https://accounts.google.com" {
+		return nil, fmt.Errorf("invalid token issuer: %q", iss)
+	}
+
+	// Validate Audience if googleClientID is configured
+	aud, _ := claims["aud"].(string)
+	if h.googleClientID != "" && aud != h.googleClientID {
+		return nil, fmt.Errorf("token audience mismatch: got %q, expected %q", aud, h.googleClientID)
+	}
+
+	// Validate Subject (Google User ID)
+	sub, _ := claims["sub"].(string)
+	if sub == "" {
+		return nil, errors.New("missing sub claim in Google ID token")
+	}
+
+	// Validate Email
+	email, _ := claims["email"].(string)
+	if email == "" {
+		return nil, errors.New("missing email claim in Google ID token")
+	}
+
+	// Validate Email Verified (CRITICAL: prevent account takeover via unverified email)
+	var emailVerified bool
+	switch ev := claims["email_verified"].(type) {
+	case bool:
+		emailVerified = ev
+	case string:
+		emailVerified = (strings.ToLower(ev) == "true")
+	}
+	if !emailVerified {
+		return nil, errors.New("google email is not verified; rejected to prevent account takeover")
+	}
+
+	name, _ := claims["name"].(string)
+	picture, _ := claims["picture"].(string)
+
+	return &GoogleTokenInfo{
+		Sub:           sub,
+		Email:         email,
+		EmailVerified: "true",
+		Name:          name,
+		Picture:       picture,
+		Aud:           aud,
+	}, nil
 }
 
 // upsertGoogleUser finds an existing user by Google ID or email, upgrades a guest session if applicable,
@@ -591,25 +842,25 @@ func (h *AuthHandler) upsertGoogleUser(
 	queryFind := `
 		SELECT id, is_guest, auth_provider, email, name, avatar_url, cash_balance, created_at
 		FROM users
-		WHERE google_id = $1 OR email = $2
+		WHERE google_id = $1
 		LIMIT 1;
 	`
-	err := h.pool.QueryRow(ctx, queryFind, googleID, email).Scan(
+	err := h.pool.QueryRow(ctx, queryFind, googleID).Scan(
 		&existingID, &existingIsGuest, &existingProvider, &existingEmail, &existingName, &existingAvatar, &existingCashBalance, &existingCreatedAt,
 	)
 
 	if err == nil {
-		// User exists - update latest name/avatar/google_id and timestamp
+		// User exists by stable Google sub identifier - update latest name/avatar/email and timestamp
 		updateQuery := `
 			UPDATE users
 			SET name = COALESCE(NULLIF($1, ''), name),
 			    avatar_url = COALESCE(NULLIF($2, ''), avatar_url),
-			    google_id = $3,
+			    email = COALESCE(NULLIF($3, ''), email),
 			    last_active = NOW()
 			WHERE id = $4
-			RETURNING name, avatar_url;
+			RETURNING name, avatar_url, email;
 		`
-		_ = h.pool.QueryRow(ctx, updateQuery, name, avatarURL, googleID, existingID).Scan(&existingName, &existingAvatar)
+		_ = h.pool.QueryRow(ctx, updateQuery, name, avatarURL, email, existingID).Scan(&existingName, &existingAvatar, &existingEmail)
 
 		return &UserResponse{
 			ID:           existingID.String(),
@@ -625,10 +876,18 @@ func (h *AuthHandler) upsertGoogleUser(
 		return nil, fmt.Errorf("query error looking up user: %w", err)
 	}
 
-	// 2. User does not exist by google_id or email.
-	// Check if there is an active guest session in Authorization header to upgrade:
+	// 2. User does not exist by google_id.
+	// Check if there is an active authenticated guest session to upgrade (explicit account linking):
 	guestID, ok := middleware.GetUserID(c)
 	if ok && guestID != uuid.Nil {
+		if email != "" {
+			var conflictID uuid.UUID
+			cErr := h.pool.QueryRow(ctx, "SELECT id FROM users WHERE email = $1 AND id != $2 LIMIT 1", email, guestID).Scan(&conflictID)
+			if cErr == nil {
+				return nil, ErrAccountConflict
+			}
+		}
+
 		// Upgrade the guest session
 		upgradeQuery := `
 			UPDATE users
@@ -663,6 +922,16 @@ func (h *AuthHandler) upsertGoogleUser(
 				CashBalance:  upgradedBalance.StringFixed(8),
 				CreatedAt:    upgradedCreated.Format(time.RFC3339),
 			}, nil
+		}
+	}
+
+	// 3. User does not exist by google_id and no authenticated guest session to link.
+	// Ensure the email is not already claimed by another account before registering.
+	if email != "" {
+		var conflictID uuid.UUID
+		cErr := h.pool.QueryRow(ctx, "SELECT id FROM users WHERE email = $1 LIMIT 1", email).Scan(&conflictID)
+		if cErr == nil {
+			return nil, ErrAccountConflict
 		}
 	}
 

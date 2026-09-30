@@ -21,6 +21,7 @@ type Config struct {
 	GoogleClientSecret string
 	GoogleRedirectURI  string
 	DisableRateLimits  bool
+	TrustedProxies     []string
 }
 
 // Load reads configuration from environment variables and local .env files.
@@ -56,7 +57,7 @@ func Load() (*Config, error) {
 	if env == "" {
 		env = os.Getenv("ENVIRONMENT")
 		if env == "" {
-			env = "development"
+			env = "production"
 		}
 	}
 	env = strings.ToLower(strings.TrimSpace(env))
@@ -91,6 +92,15 @@ func Load() (*Config, error) {
 		googleRedirectURI = "http://localhost:4200/auth/callback"
 	}
 
+	var trustedProxies []string
+	if rawProxies := os.Getenv("TRUSTED_PROXIES"); rawProxies != "" {
+		for _, p := range strings.Split(rawProxies, ",") {
+			if trimmed := strings.TrimSpace(p); trimmed != "" {
+				trustedProxies = append(trustedProxies, trimmed)
+			}
+		}
+	}
+
 	return &Config{
 		DatabaseURL:        strings.TrimSpace(dbURL),
 		ServerPort:         strings.TrimSpace(port),
@@ -101,13 +111,14 @@ func Load() (*Config, error) {
 		GoogleClientID:     strings.TrimSpace(googleClientID),
 		GoogleClientSecret: strings.TrimSpace(googleClientSecret),
 		GoogleRedirectURI:  strings.TrimSpace(googleRedirectURI),
+		TrustedProxies:     trustedProxies,
 	}, nil
 }
 
 // IsDevOrLocal returns true if the current environment is dev or local.
 func (c *Config) IsDevOrLocal() bool {
 	if c == nil {
-		return true
+		return false
 	}
 	env := strings.ToLower(strings.TrimSpace(c.Environment))
 	return env == "local" || env == "dev" || env == "development"

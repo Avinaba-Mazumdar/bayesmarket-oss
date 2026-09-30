@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,6 +20,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
+
+// SystemAdminID is the designated system administrator UUID used for admin-mediated resolutions without a user JWT.
+var SystemAdminID = uuid.MustParse("00000000-0000-0000-0000-000000000001")
 
 // CreateMarketRequest defines input payload for creating a new prediction market.
 type CreateMarketRequest struct {
@@ -40,18 +44,20 @@ type ResolveMarketRequest struct {
 
 // ResolveMarketResponse defines the settlement receipt returned upon successful resolution.
 type ResolveMarketResponse struct {
-	Status          string `json:"status"`
-	MarketID        string `json:"market_id"`
-	WinningOutcome  string `json:"winning_outcome"`
-	TotalPayoutUSDC string `json:"total_payout_usdc"`
-	WinnersCredited int    `json:"winners_credited"`
-	OracleProof     string `json:"oracle_proof"`
-	ResolvedAt      string `json:"resolved_at"`
+	Status           string `json:"status"`
+	MarketID         string `json:"market_id"`
+	WinningOutcome   string `json:"winning_outcome"`
+	TotalPayoutUSDC  string `json:"total_payout_usdc"`
+	WinnersCredited  int    `json:"winners_credited"`
+	OracleProof      string `json:"oracle_proof"`
+	ProofHash        string `json:"proof_hash,omitempty"`
+	SettlementDigest string `json:"settlement_digest,omitempty"`
+	ResolvedAt       string `json:"resolved_at"`
 }
 
 // oracleCacheEntry holds in-memory cached oracle proof verification with a 60-second TTL.
 type oracleCacheEntry struct {
-	proof      string
+	proofHash  string
 	outcome    string
 	verifiedAt time.Time
 }
@@ -75,11 +81,11 @@ func (c *oracleCache) get(marketID string) (oracleCacheEntry, bool) {
 	return entry, true
 }
 
-func (c *oracleCache) set(marketID, outcome, proof string) {
+func (c *oracleCache) set(marketID, outcome, proofHash string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.items[marketID] = oracleCacheEntry{
-		proof:      proof,
+		proofHash:  proofHash,
 		outcome:    outcome,
 		verifiedAt: time.Now(),
 	}
@@ -146,18 +152,25 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	winningOutcome := string(outcome)
 
 	oracleProof := strings.TrimSpace(req.OracleProof)
-	if oracleProof == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_proof", "message": "oracle_proof cannot be empty"})
+	if oracleProof == "" || len(oracleProof) < 4 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_proof", "message": "oracle_proof must contain substantive resolution evidence"})
 		return
 	}
+	proofHash := fmt.Sprintf("%x", sha256.Sum256([]byte(oracleProof)))
 
-	// Determine actor UUID for idempotency registration (must reference an existing user in users table)
+	// Determine actor UUID for idempotency registration and ledger audit.
+	// If the request authenticated via static ADMIN_TOKEN without a user JWT, attribute to the
+	// deterministic System Administrator account (never a random user from the users table).
 	actorID, exists := middleware.GetUserID(c)
 	if !exists || actorID == uuid.Nil {
-		var sysID uuid.UUID
-		err := h.pool.QueryRow(ctx, "SELECT id FROM users LIMIT 1").Scan(&sysID)
-		if err == nil {
-			actorID = sysID
+		actorID = SystemAdminID
+		if h.pool != nil {
+			ensureAdminQuery := `
+				INSERT INTO users (id, is_guest, auth_provider, name, email)
+				VALUES ($1, false, 'system', 'System Administrator', 'admin@bayesmarket.internal')
+				ON CONFLICT (id) DO NOTHING;
+			`
+			_, _ = h.pool.Exec(ctx, ensureAdminQuery, SystemAdminID)
 		}
 	}
 
@@ -179,6 +192,13 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":   "oracle_proof_conflict",
 				"message": fmt.Sprintf("Recent cached oracle verification indicated outcome '%s', conflicting with requested '%s'", entry.outcome, winningOutcome),
+			})
+			return
+		}
+		if entry.proofHash != proofHash {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "oracle_proof_conflict",
+				"message": "Recent cached oracle verification utilized a conflicting proof hash for this market",
 			})
 			return
 		}
@@ -376,14 +396,22 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	}
 
 	nowStr := time.Now().UTC().Format(time.RFC3339)
+	settlementPayload := fmt.Sprintf("%s:%s:%s:%s:%s", marketID.String(), winningOutcome, totalPayout.StringFixed(8), proofHash, nowStr)
+	settlementDigest := fmt.Sprintf("%x", sha256.Sum256([]byte(settlementPayload)))
+
+	log.Printf("[AUTHORITATIVE RESOLUTION AUDIT] MarketID=%s WinningOutcome=%s TotalPayout=%s Winners=%d ProofHash=%s SettlementDigest=%s ActorID=%s ResolutionSource=%q",
+		marketID.String(), winningOutcome, totalPayout.StringFixed(8), len(winners), proofHash, settlementDigest, actorID.String(), resolutionSource)
+
 	responseObj := ResolveMarketResponse{
-		Status:          "resolved",
-		MarketID:        marketID.String(),
-		WinningOutcome:  winningOutcome,
-		TotalPayoutUSDC: totalPayout.StringFixed(8),
-		WinnersCredited: len(winners),
-		OracleProof:     oracleProof,
-		ResolvedAt:      nowStr,
+		Status:           "resolved",
+		MarketID:         marketID.String(),
+		WinningOutcome:   winningOutcome,
+		TotalPayoutUSDC:  totalPayout.StringFixed(8),
+		WinnersCredited:  len(winners),
+		OracleProof:      oracleProof,
+		ProofHash:        proofHash,
+		SettlementDigest: settlementDigest,
+		ResolvedAt:       nowStr,
 	}
 
 	// 7. Store idempotency receipt
@@ -408,7 +436,7 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	}
 
 	// 8. Cache verified oracle response for 60 seconds
-	h.cache.set(marketID.String(), winningOutcome, oracleProof)
+	h.cache.set(marketID.String(), winningOutcome, proofHash)
 
 	// 9. Broadcast MARKET_RESOLVED WebSocket frame to connected clients
 	if h.hub != nil {

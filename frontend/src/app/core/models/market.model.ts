@@ -153,6 +153,11 @@ export interface GoogleVerifyRequest {
     name?: string;
 }
 
+export interface GoogleCallbackRequest {
+    code: string;
+    state?: string;
+}
+
 export interface AuthResponse {
     token: string;
     user: UserProfile;

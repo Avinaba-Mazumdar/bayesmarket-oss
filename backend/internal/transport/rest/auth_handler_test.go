@@ -12,6 +12,7 @@ import (
 	"github.com/bayesmarket/bayesmarket/internal/config"
 	"github.com/bayesmarket/bayesmarket/internal/database"
 	"github.com/bayesmarket/bayesmarket/internal/transport/rest"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +22,7 @@ func TestAuthHandler_GuestAndGoogleOAuth(t *testing.T) {
 	if err != nil || cfg.DatabaseURL == "" {
 		t.Skip("Skipping AuthHandler tests: DATABASE_URL not set")
 	}
+	cfg.DisableRateLimits = true
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -79,10 +81,11 @@ func TestAuthHandler_GuestAndGoogleOAuth(t *testing.T) {
 
 	// 3. Test Google Auth Verify (Simulation / Dev mode)
 	var googleToken string
+	uniqueEmail := "alice." + uuid.New().String()[:8] + "@bayesmarket.com"
 	t.Run("HandleGoogleAuthVerify registers verified Google account", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
 			"id_token": "dev-token-xyz-123",
-			"email":    "alice.quant@bayesmarket.com",
+			"email":    uniqueEmail,
 			"name":     "Alice Quant",
 		})
 		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/google/verify", bytes.NewBuffer(body))
@@ -99,7 +102,7 @@ func TestAuthHandler_GuestAndGoogleOAuth(t *testing.T) {
 		assert.False(t, res.User.IsGuest)
 		assert.Equal(t, "google", res.User.AuthProvider)
 		require.NotNil(t, res.User.Email)
-		assert.Equal(t, "alice.quant@bayesmarket.com", *res.User.Email)
+		assert.Equal(t, uniqueEmail, *res.User.Email)
 		require.NotNil(t, res.User.Name)
 		assert.Equal(t, "Alice Quant", *res.User.Name)
 
@@ -121,15 +124,56 @@ func TestAuthHandler_GuestAndGoogleOAuth(t *testing.T) {
 		assert.False(t, user.IsGuest)
 		assert.Equal(t, "google", user.AuthProvider)
 		require.NotNil(t, user.Email)
-		assert.Equal(t, "alice.quant@bayesmarket.com", *user.Email)
+		assert.Equal(t, uniqueEmail, *user.Email)
 	})
 
-	// 5. Test Google Auth URL
+	// 5. Test prevention of account takeover: different Google identity with existing email is rejected
+	t.Run("HandleGoogleAuthVerify rejects hijacking account with existing email", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"id_token": "dev-token-attacker-456",
+			"email":    uniqueEmail,
+			"name":     "Attacker",
+		})
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/google/verify", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code)
+	})
+
+	// 6. Test Google Auth URL
 	t.Run("HandleGoogleAuthURL returns OAuth endpoint or simulated status", func(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodGet, "/api/v1/auth/google/url", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
+	})
+
+	// 7. Test Google Callback state validation
+	t.Run("HandleGoogleAuthCallback requires valid state parameter", func(t *testing.T) {
+		// Missing state
+		body, _ := json.Marshal(map[string]string{
+			"code": "mock-auth-code-123",
+		})
+		req, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/google/callback", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+
+		// Valid state in dev mode
+		validBody, _ := json.Marshal(map[string]string{
+			"code":  "mock-auth-code-123",
+			"state": "mock-state",
+		})
+		req2, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/google/callback", bytes.NewBuffer(validBody))
+		req2.Header.Set("Content-Type", "application/json")
+		w2 := httptest.NewRecorder()
+		router.ServeHTTP(w2, req2)
+
+		assert.Equal(t, http.StatusOK, w2.Code)
 	})
 }

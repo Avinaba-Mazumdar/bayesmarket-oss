@@ -22,6 +22,11 @@ export const routes: Routes = [
         title: 'Superadmin Liquidity & Market Creator — BayesMarket'
     },
     {
+        path: 'auth/callback',
+        loadComponent: () => import('./features/auth/auth-callback.component').then((m) => m.AuthCallbackComponent),
+        title: 'Authenticating — BayesMarket'
+    },
+    {
         path: '**',
         redirectTo: ''
     }

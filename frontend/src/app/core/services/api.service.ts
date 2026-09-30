@@ -10,6 +10,7 @@ import {
     CreateMarketRequest,
     CreateMarketResponse,
     FaucetResponse,
+    GoogleCallbackRequest,
     GoogleVerifyRequest,
     Market,
     OrderResponse,
@@ -73,6 +74,14 @@ export class ApiService {
      */
     getGoogleAuthUrl(): Observable<{ url: string; state?: string; simulated: boolean; message?: string }> {
         return this.http.get<{ url: string; state?: string; simulated: boolean; message?: string }>(`${this.baseUrl}/auth/google/url`);
+    }
+
+    /**
+     * Exchange OAuth 2.0 authorization code and state for a user session.
+     */
+    callbackGoogleAuth(request: GoogleCallbackRequest, guestToken?: string | null): Observable<AuthResponse> {
+        const headers = this.buildHeaders(guestToken);
+        return this.http.post<AuthResponse>(`${this.baseUrl}/auth/google/callback`, request, { headers });
     }
 
     /**

@@ -119,6 +119,13 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	}
 
 	router := gin.New()
+	if cfg != nil && len(cfg.TrustedProxies) > 0 {
+		_ = router.SetTrustedProxies(cfg.TrustedProxies)
+	} else {
+		// When no proxies are explicitly trusted, disable proxy trust completely.
+		// This prevents callers from spoofing ClientIP() via X-Forwarded-For or X-Real-IP headers.
+		_ = router.SetTrustedProxies(nil)
+	}
 	router.Use(
 		gin.Logger(),
 		gin.Recovery(),
