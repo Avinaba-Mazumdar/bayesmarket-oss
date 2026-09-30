@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, computed, effect, inject, input, model, output, viewChild } from '@angular/core';
 import { LucideX } from '@lucide/angular';
+import { ButtonComponent } from '../button/button.component';
 
 export type DialogSize = 'sm' | 'default' | 'lg' | 'xl';
 export type DialogRole = 'dialog' | 'alertdialog';
@@ -8,7 +9,7 @@ export type DialogRole = 'dialog' | 'alertdialog';
     selector: 'app-dialog',
     standalone: true,
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [LucideX],
+    imports: [LucideX, ButtonComponent],
     template: `
         <!-- Optional Projected Trigger Button -->
         <span class="dialog-trigger-wrapper" (click)="openDialog()">
@@ -34,9 +35,9 @@ export type DialogRole = 'dialog' | 'alertdialog';
                     >
                         <!-- Close Button (WCAG AAA min 44x44px touch target) -->
                         @if (showCloseButton()) {
-                            <button type="button" class="dialog-close-btn" aria-label="Close dialog" (click)="close()">
+                            <app-button class="dialog-close-btn" variant="ghost" size="icon" ariaLabel="Close dialog" (btnClick)="close()">
                                 <svg lucideX class="close-icon" [size]="18" aria-hidden="true"></svg>
-                            </button>
+                            </app-button>
                         }
 
                         <!-- Header -->
@@ -189,29 +190,7 @@ export type DialogRole = 'dialog' | 'alertdialog';
                 position: absolute;
                 top: 14px;
                 right: 14px;
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: var(--touch-target-min, 44px);
-                min-height: var(--touch-target-min, 44px);
-                background: transparent;
-                border: none;
-                border-radius: var(--radius-md, 10px);
-                color: var(--muted, #9d97b8);
-                cursor: pointer;
-                transition:
-                    color 0.15s ease,
-                    background-color 0.15s ease;
-            }
-
-            .dialog-close-btn:hover {
-                color: var(--ink, #f8f7ff);
-                background-color: rgba(255, 255, 255, 0.06);
-            }
-
-            .dialog-close-btn:focus-visible {
-                outline: 2px solid var(--focus-outline, #7c4dff);
-                outline-offset: 2px;
+                z-index: 10;
             }
 
             .close-icon {

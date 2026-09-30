@@ -130,7 +130,7 @@ type GoogleTokenInfo struct {
 //
 // POST /api/v1/auth/guest
 func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
 	defer cancel()
 
 	clientIP := strings.TrimSpace(c.ClientIP())
@@ -163,10 +163,10 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		// Atomic conditional insert eliminates TOCTOU races under concurrent requests
 		query := `
 			INSERT INTO users (is_guest, cash_balance, auth_provider, ip_address)
-			SELECT true, $1, 'guest', $2
+			SELECT true, $1, 'guest', $2::varchar
 			WHERE (
 				SELECT COUNT(*) FROM users
-				WHERE is_guest = true AND ip_address = $2 AND created_at > NOW() - INTERVAL '24 hours'
+				WHERE is_guest = true AND ip_address = $2::varchar AND created_at > NOW() - INTERVAL '24 hours'
 			) < $3
 			RETURNING id, is_guest, auth_provider, cash_balance, created_at;
 		`
@@ -174,6 +174,7 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 			&userID, &isGuest, &authProvider, &cashBalance, &createdAt,
 		)
 		if err != nil {
+			log.Printf("[HandleGuestAuth] Database insert error: %v (clientIP: %s)\n", err, clientIP)
 			if errors.Is(err, pgx.ErrNoRows) {
 				c.JSON(http.StatusTooManyRequests, gin.H{
 					"error":   "guest_limit_exceeded",
@@ -181,10 +182,14 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{
+			resp := gin.H{
 				"error":   "database_error",
 				"message": "Failed to provision guest user session",
-			})
+			}
+			if h.isDevOrLocal {
+				resp["detail"] = err.Error()
+			}
+			c.JSON(http.StatusInternalServerError, resp)
 			return
 		}
 	}
@@ -299,6 +304,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 
 	user, err := h.upsertGoogleUser(ctx, c, googleID, email, name, avatarURL)
 	if err != nil {
+		log.Printf("[HandleGoogleAuthVerify] upsertGoogleUser error: %v\n", err)
 		if errors.Is(err, ErrAccountConflict) {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":   "account_conflict",
@@ -306,10 +312,14 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
+		resp := gin.H{
 			"error":   "auth_error",
 			"message": "Failed to authenticate user profile",
-		})
+		}
+		if h.isDevOrLocal {
+			resp["detail"] = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, resp)
 		return
 	}
 
@@ -463,6 +473,7 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 		mockGoogleID := "google-mock-" + fmt.Sprintf("%x", sha256.Sum256([]byte(req.Code)))[:16]
 		user, err := h.upsertGoogleUser(ctx, c, mockGoogleID, "oauth.trader@bayesmarket.com", "OAuth Trader", "")
 		if err != nil {
+			log.Printf("[HandleGoogleAuthCallback] mock upsertGoogleUser error: %v\n", err)
 			if errors.Is(err, ErrAccountConflict) {
 				c.JSON(http.StatusConflict, gin.H{
 					"error":   "account_conflict",
@@ -470,7 +481,11 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 				})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to create user session"})
+			resp := gin.H{"error": "database_error", "message": "Failed to create user session"}
+			if h.isDevOrLocal {
+				resp["detail"] = err.Error()
+			}
+			c.JSON(http.StatusInternalServerError, resp)
 			return
 		}
 		tokenString, _ := h.generateJWT(user.ID, false, "oauth.trader@bayesmarket.com", "OAuth Trader", "", "google")
@@ -528,10 +543,14 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{
+		resp := gin.H{
 			"error":   "database_error",
 			"message": "Failed to create or update user profile",
-		})
+		}
+		if h.isDevOrLocal {
+			resp["detail"] = err.Error()
+		}
+		c.JSON(http.StatusInternalServerError, resp)
 		return
 	}
 

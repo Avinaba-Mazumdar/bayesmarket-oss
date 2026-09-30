@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@ang
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
 import { LucideAlertCircle, LucideLoader2 } from '@lucide/angular';
+import { timeout } from 'rxjs';
 import { AuthStore } from '../../state/auth.store';
 import { ToastService } from '../../shared/components/toast/toast.service';
 import { ButtonComponent } from '../../shared/components/button/button.component';
@@ -29,6 +30,11 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                     </div>
                     <h1 class="callback-title">Completing Sign-In</h1>
                     <p class="callback-desc">Verifying your Google credentials and securing session...</p>
+                    <div class="callback-actions">
+                        <app-button variant="ghost" size="sm" (btnClick)="navigateHome()" ariaLabel="Cancel and return to Markets">
+                            Cancel & Return
+                        </app-button>
+                    </div>
                 }
             </div>
         </div>
@@ -41,6 +47,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                 justify-content: center;
                 min-height: calc(100vh - 120px);
                 padding: 24px;
+                background-color: var(--canvas, #f8f9fc);
             }
 
             .callback-card {
@@ -51,10 +58,10 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                 max-width: 440px;
                 width: 100%;
                 padding: 40px 32px;
-                background-color: var(--surface, #13111c);
-                border: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
-                border-radius: var(--radius-lg, 16px);
-                box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+                background-color: var(--surface-card, #ffffff);
+                border: 1px solid var(--hairline, #cbd5e1);
+                border-radius: var(--radius-xl, 18px);
+                box-shadow: var(--shadow-terminal, 0 10px 25px -5px rgba(15, 23, 42, 0.1));
             }
 
             .status-icon {
@@ -65,11 +72,11 @@ import { ButtonComponent } from '../../shared/components/button/button.component
             }
 
             .status-icon.loading {
-                color: var(--primary, #7c4dff);
+                color: var(--primary, #4338ca);
             }
 
             .status-icon.error {
-                color: var(--status-error, #f43f5e);
+                color: var(--status-loss, #9f1239);
             }
 
             .spin {
@@ -86,17 +93,18 @@ import { ButtonComponent } from '../../shared/components/button/button.component
             }
 
             .callback-title {
-                font-family: var(--font-display, sans-serif);
-                font-size: 22px;
+                font-family: var(--font-ui, system-ui, sans-serif);
+                font-size: 20px;
                 font-weight: 700;
-                color: var(--foreground, #ffffff);
+                color: var(--ink, #0f172a);
                 margin: 0 0 10px 0;
+                letter-spacing: -0.2px;
             }
 
             .callback-desc {
-                font-family: var(--font-ui, sans-serif);
+                font-family: var(--font-ui, system-ui, sans-serif);
                 font-size: 14px;
-                color: var(--muted, #9d97b8);
+                color: var(--muted, #3b4861);
                 line-height: 1.5;
                 margin: 0 0 24px 0;
             }
@@ -148,16 +156,22 @@ export class AuthCallbackComponent implements OnInit {
             }
         }
 
-        // Exchange code and state for session
-        this.authStore.loginWithGoogleCallback(code, state || undefined).subscribe({
-            next: () => {
-                this.router.navigate(['/']);
-            },
-            error: (err) => {
-                const msg = err?.error?.message || 'Failed to complete Google authentication';
-                this.errorMessage.set(msg);
-            }
-        });
+        // Exchange code and state for session with 12s timeout
+        this.authStore
+            .loginWithGoogleCallback(code, state || undefined)
+            .pipe(timeout(12000))
+            .subscribe({
+                next: () => {
+                    this.router.navigate(['/']);
+                },
+                error: (err) => {
+                    const msg =
+                        err?.name === 'TimeoutError'
+                            ? 'Authentication timed out connecting to the server. Please check your network and try again.'
+                            : err?.error?.message || 'Failed to complete Google authentication';
+                    this.errorMessage.set(msg);
+                }
+            });
     }
 
     navigateHome(): void {

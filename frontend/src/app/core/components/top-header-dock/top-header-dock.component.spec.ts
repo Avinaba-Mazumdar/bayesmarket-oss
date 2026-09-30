@@ -133,11 +133,11 @@ describe('TopHeaderDockComponent', () => {
         expect(el.querySelector('.user-profile-dock')).toBeTruthy();
         expect(el.querySelector('.auth-user-name')?.textContent).toContain('Alex Mercer');
 
-        const signOutBtn = el.querySelector('.signout-quick-btn') as HTMLButtonElement;
-        expect(signOutBtn).toBeTruthy();
-        const logoutSpy = vi.spyOn(authStore, 'logout');
-        signOutBtn.click();
-        expect(logoutSpy).toHaveBeenCalled();
+        const profileBtn = el.querySelector('.user-logged-in-btn') as HTMLButtonElement;
+        expect(profileBtn).toBeTruthy();
+        const openAuthSpy = vi.spyOn(authStore, 'openAuthModal');
+        profileBtn.click();
+        expect(openAuthSpy).toHaveBeenCalled();
     });
 
     it('should render theme toggle button and toggle theme when clicked', () => {

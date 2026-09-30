@@ -1,8 +1,7 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { LucideLogIn, LucideLogOut, LucideSun, LucideMoon } from '@lucide/angular';
+import { LucideLogIn, LucideSun, LucideMoon } from '@lucide/angular';
 import { ThemeService } from '../../services/theme.service';
-import { WebSocketService } from '../../services/websocket.service';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
 import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { AvatarComponent } from '../../../shared/components/avatar/avatar.component';
@@ -13,18 +12,7 @@ import { AuthStore } from '../../../state/auth.store';
     selector: 'app-top-header-dock',
     standalone: true,
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [
-        RouterLink,
-        RouterLinkActive,
-        ButtonComponent,
-        BadgeComponent,
-        AvatarComponent,
-        BrandIconComponent,
-        LucideLogIn,
-        LucideLogOut,
-        LucideSun,
-        LucideMoon
-    ],
+    imports: [RouterLink, RouterLinkActive, ButtonComponent, BadgeComponent, AvatarComponent, BrandIconComponent, LucideLogIn, LucideSun, LucideMoon],
     template: `
         <header class="top-header-dock" role="banner">
             <div class="dock-container">
@@ -66,17 +54,6 @@ import { AuthStore } from '../../../state/auth.store';
                         </app-button>
                     }
 
-                    <!-- WebSocket Connection Status Badge -->
-                    <div
-                        class="ws-status-badge"
-                        [class]="'status-' + wsService.connectionStatus()"
-                        [attr.aria-label]="'WebSocket connection: ' + wsStatusLabel()"
-                        [title]="'WebSocket status: ' + wsService.connectionStatus()"
-                    >
-                        <span class="status-dot" aria-hidden="true"></span>
-                        <span class="status-text">{{ wsStatusLabel() }}</span>
-                    </div>
-
                     <!-- Theme Switcher Toggle -->
                     <button
                         type="button"
@@ -117,9 +94,6 @@ import { AuthStore } from '../../../state/auth.store';
                                 <span class="guest-badge-pill">Guest</span>
                                 <span class="auth-user-name">Guest Trader</span>
                             </button>
-                            <button type="button" class="signout-quick-btn" (click)="authStore.logout()" aria-label="Sign out" title="Sign out">
-                                <svg lucideLogOut [size]="14" aria-hidden="true"></svg>
-                            </button>
                         </div>
                     } @else {
                         <div class="user-profile-dock">
@@ -132,9 +106,6 @@ import { AuthStore } from '../../../state/auth.store';
                             >
                                 <app-avatar [src]="authStore.userAvatar() || ''" [alt]="authStore.userName()" size="sm" />
                                 <span class="auth-user-name">{{ authStore.userName() }}</span>
-                            </button>
-                            <button type="button" class="signout-quick-btn" (click)="authStore.logout()" aria-label="Sign out" title="Sign out">
-                                <svg lucideLogOut [size]="14" aria-hidden="true"></svg>
                             </button>
                         </div>
                     }
@@ -276,79 +247,6 @@ import { AuthStore } from '../../../state/auth.store';
                 }
             }
 
-            /* WebSocket Connection Status Badge */
-            .ws-status-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                min-height: 32px;
-                padding: 4px 10px;
-                background-color: var(--surface-card, #131126);
-                border: 1px solid var(--hairline, #252140);
-                border-radius: var(--radius-pill, 9999px);
-                font-family: var(--font-mono);
-                font-size: 11px;
-                font-weight: 600;
-                letter-spacing: 0.3px;
-                user-select: none;
-                transition: border-color 0.2s ease, background-color 0.2s ease;
-            }
-
-            .status-dot {
-                width: 7px;
-                height: 7px;
-                border-radius: 50%;
-                display: inline-block;
-                transition: background-color 0.2s ease, box-shadow 0.2s ease;
-            }
-
-            .status-connected {
-                color: var(--status-gain, #10b981);
-                border-color: rgba(16, 185, 129, 0.3);
-            }
-
-            .status-connected .status-dot {
-                background-color: var(--status-gain, #10b981);
-                box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
-            }
-
-            .status-connecting,
-            .status-reconnecting {
-                color: var(--status-warning, #f59e0b);
-                border-color: rgba(245, 158, 11, 0.3);
-            }
-
-            .status-connecting .status-dot,
-            .status-reconnecting .status-dot {
-                background-color: var(--status-warning, #f59e0b);
-                box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
-                animation: pulse 1.5s infinite;
-            }
-
-            .status-disconnected {
-                color: var(--muted, #94a3b8);
-                border-color: var(--hairline, #252140);
-            }
-
-            .status-disconnected .status-dot {
-                background-color: var(--muted, #94a3b8);
-            }
-
-            @keyframes pulse {
-                0% { opacity: 0.4; }
-                50% { opacity: 1; }
-                100% { opacity: 0.4; }
-            }
-
-            @media (max-width: 640px) {
-                .ws-status-badge .status-text {
-                    display: none;
-                }
-                .ws-status-badge {
-                    padding: 4px 6px;
-                }
-            }
-
             /* Theme Switcher Toggle */
             .theme-toggle-btn {
                 display: inline-flex;
@@ -417,7 +315,7 @@ import { AuthStore } from '../../../state/auth.store';
                 background-color: var(--surface-card, #131126);
                 border: 1px solid var(--hairline, #252140);
                 color: var(--ink, #f8f7ff);
-                padding: 6px 12px;
+                padding: 6px;
             }
 
             .user-logged-in-btn:hover {
@@ -454,50 +352,12 @@ import { AuthStore } from '../../../state/auth.store';
                 overflow: hidden;
                 text-overflow: ellipsis;
             }
-
-            .signout-quick-btn {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                min-width: 36px;
-                min-height: 38px;
-                padding: 6px 10px;
-                background-color: transparent;
-                border: 1px solid var(--hairline, #1e293b);
-                border-radius: var(--radius-pill, 9999px);
-                color: var(--muted, #94a3b8);
-                cursor: pointer;
-                transition:
-                    background-color 0.15s ease,
-                    color 0.15s ease;
-            }
-
-            .signout-quick-btn:hover {
-                background-color: var(--status-loss-bg, #fff1f2);
-                border-color: var(--status-loss-border, #e11d48);
-                color: var(--status-loss, #9f1239);
-            }
         `
     ]
 })
 export class TopHeaderDockComponent {
     readonly authStore = inject(AuthStore);
     readonly themeService = inject(ThemeService);
-    readonly wsService = inject(WebSocketService);
-
-    readonly wsStatusLabel = computed(() => {
-        switch (this.wsService.connectionStatus()) {
-            case 'connected':
-                return 'Live';
-            case 'connecting':
-                return 'Connecting';
-            case 'reconnecting':
-                return 'Reconnecting';
-            case 'disconnected':
-            default:
-                return 'Offline';
-        }
-    });
 
     get userBalance() {
         return this.authStore.cashBalance;

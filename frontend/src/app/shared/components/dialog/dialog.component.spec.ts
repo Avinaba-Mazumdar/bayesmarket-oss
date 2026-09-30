@@ -87,9 +87,10 @@ describe('DialogComponent', () => {
         host.isOpen.set(true);
         fixture.detectChanges();
 
-        const closeBtn = fixture.nativeElement.querySelector('.dialog-close-btn') as HTMLButtonElement;
-        expect(closeBtn).toBeTruthy();
+        const closeBtnWrapper = fixture.nativeElement.querySelector('.dialog-close-btn') as HTMLElement;
+        expect(closeBtnWrapper).toBeTruthy();
 
+        const closeBtn = (closeBtnWrapper.querySelector('button') ?? closeBtnWrapper) as HTMLButtonElement;
         closeBtn.click();
         fixture.detectChanges();
 
