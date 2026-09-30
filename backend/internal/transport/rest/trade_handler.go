@@ -348,13 +348,15 @@ func (h *TradeHandler) executeOrderTx(
 		) VALUES 
 		($1, $2, $3, 'user_cash', 'USDC', $4, 'trade', NOW()),
 		($1, $2, $3, 'pool_collateral', 'USDC', $5, 'trade', NOW()),
-		($1, $2, $3, $6, $7, $8, 'trade', NOW());
+		($1, $2, $3, $6, $7, $8, 'trade', NOW()),
+		($1, $2, $3, 'pool_shares', $7, $9, 'trade', NOW());
 	`, tradeID, userID, marketUUID,
 		amount.Neg(),
 		amount,
 		positionAccount,
 		string(outcome),
 		quote.SharesReceived,
+		quote.SharesReceived.Neg(),
 	)
 
 	// 6. Idempotency receipt
@@ -603,13 +605,15 @@ func (h *TradeHandler) executeCashOutTx(
 		) VALUES 
 		($1, $2, $3, 'pool_collateral', 'USDC', $4, 'trade', NOW()),
 		($1, $2, $3, 'user_cash', 'USDC', $5, 'trade', NOW()),
-		($1, $2, $3, $6, $7, $8, 'trade', NOW());
+		($1, $2, $3, $6, $7, $8, 'trade', NOW()),
+		($1, $2, $3, 'pool_shares', $7, $9, 'trade', NOW());
 	`, tradeID, userID, marketUUID,
 		quote.PayoutUSDC.Neg(),
 		quote.PayoutUSDC,
 		positionAccount,
 		string(outcome),
 		shares.Neg(),
+		shares,
 	)
 
 	// 6. Store idempotency receipt

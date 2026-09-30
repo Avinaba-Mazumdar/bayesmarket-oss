@@ -69,6 +69,13 @@ import { BadgeComponent } from '../../shared/components/badge/badge.component';
                         </div>
 
                         <div class="table-row" role="row">
+                            <span class="cell-label" role="rowheader">Min Payout (2% Slippage Guard)</span>
+                            <span class="cell-val tabular-nums" role="cell">
+                                {{ '$' + formattedMinPayout() + ' USDC' }}
+                            </span>
+                        </div>
+
+                        <div class="table-row" role="row">
                             <span class="cell-label" role="rowheader">Unrealized P&L Impact</span>
                             <span class="cell-val tabular-nums" [class.profit-val]="isPnLPositive()" [class.loss-val]="!isPnLPositive()" role="cell">
                                 {{ pos.unrealized_pnl_usdc || pos.unrealized_pnl || '$0.00' }}
@@ -313,6 +320,12 @@ export class CashOutDialogComponent {
         return isNaN(shares) || isNaN(price) ? '0.00' : (shares * price).toFixed(2);
     });
 
+    protected readonly formattedMinPayout = computed(() => {
+        const proceeds = parseFloat(this.formattedProceeds()) || 0;
+        const minPayout = Math.max(0, proceeds * 0.98);
+        return minPayout.toFixed(2);
+    });
+
     protected readonly isPnLPositive = computed(() => {
         const pos = this.position();
         if (!pos) return true;
@@ -343,12 +356,17 @@ export class CashOutDialogComponent {
         this.isExecuting.set(true);
         const idempotencyKey = `cashout-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+        const proceeds = parseFloat(this.formattedProceeds()) || 0;
+        // Apply 2% maximum slippage protection against front-running and AMM reserve drift
+        const minPayout = Math.max(0, proceeds * 0.98);
+
         this.apiService
             .cashOut(
                 {
                     market_id: pos.market_id,
                     outcome: pos.outcome,
-                    shares: parseFloat(pos.shares_owned).toFixed(8)
+                    shares: parseFloat(pos.shares_owned).toFixed(8),
+                    min_payout_usdc: minPayout > 0 ? minPayout.toFixed(8) : undefined
                 },
                 token,
                 idempotencyKey

@@ -20,11 +20,23 @@ type gzipWriter struct {
 	writer *gzip.Writer
 }
 
+func (g *gzipWriter) WriteHeader(code int) {
+	g.Header().Del("Content-Length")
+	g.ResponseWriter.WriteHeader(code)
+}
+
+func (g *gzipWriter) WriteHeaderNow() {
+	g.Header().Del("Content-Length")
+	g.ResponseWriter.WriteHeaderNow()
+}
+
 func (g *gzipWriter) Write(data []byte) (int, error) {
+	g.Header().Del("Content-Length")
 	return g.writer.Write(data)
 }
 
 func (g *gzipWriter) WriteString(s string) (int, error) {
+	g.Header().Del("Content-Length")
 	return g.writer.Write([]byte(s))
 }
 
@@ -48,6 +60,7 @@ func gzipMiddleware() gin.HandlerFunc {
 
 		c.Header("Content-Encoding", "gzip")
 		c.Header("Vary", "Accept-Encoding")
+		c.Writer.Header().Del("Content-Length")
 		c.Writer = &gzipWriter{ResponseWriter: c.Writer, writer: gz}
 		c.Next()
 	}
@@ -202,8 +215,15 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 			}
 		}
 
-		c.JSON(http.StatusOK, gin.H{
-			"status":    "healthy",
+		httpStatus := http.StatusOK
+		overallStatus := "healthy"
+		if dbStatus != "connected" {
+			httpStatus = http.StatusServiceUnavailable
+			overallStatus = "unhealthy"
+		}
+
+		c.JSON(httpStatus, gin.H{
+			"status":    overallStatus,
 			"service":   "bayesmarket-backend",
 			"database":  dbStatus,
 			"timestamp": time.Now().UTC().Format(time.RFC3339),

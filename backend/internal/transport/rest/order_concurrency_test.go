@@ -174,14 +174,24 @@ func TestConcurrency_DoubleSpendAttack(t *testing.T) {
 		t.Fatalf("Expected positive shares owned, got %s", sharesOwned)
 	}
 
-	// Verify ledger entries: exactly 3 balanced entries for the single trade
+	// Verify ledger entries: exactly 4 balanced entries for the single trade (2 cash/collateral, 2 share positions)
 	var ledgerCount int
 	err = pool.QueryRow(ctx, "SELECT COUNT(*) FROM ledger_entries WHERE user_id = $1", userID).Scan(&ledgerCount)
 	if err != nil {
 		t.Fatalf("Failed to count ledger entries: %v", err)
 	}
-	if ledgerCount != 3 {
-		t.Fatalf("Expected exactly 3 double-entry ledger rows, got %d", ledgerCount)
+	if ledgerCount != 4 {
+		t.Fatalf("Expected exactly 4 double-entry ledger rows, got %d", ledgerCount)
+	}
+
+	var usdcSum, shareSum decimal.Decimal
+	err = pool.QueryRow(ctx, "SELECT COALESCE(SUM(delta), 0) FROM ledger_entries WHERE user_id = $1 AND asset = 'USDC'", userID).Scan(&usdcSum)
+	if err != nil || !usdcSum.IsZero() {
+		t.Fatalf("Expected USDC ledger entries to reconcile to 0, got %s (err: %v)", usdcSum, err)
+	}
+	err = pool.QueryRow(ctx, "SELECT COALESCE(SUM(delta), 0) FROM ledger_entries WHERE user_id = $1 AND asset != 'USDC'", userID).Scan(&shareSum)
+	if err != nil || !shareSum.IsZero() {
+		t.Fatalf("Expected Share ledger entries to reconcile to 0, got %s (err: %v)", shareSum, err)
 	}
 }
 

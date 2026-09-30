@@ -328,14 +328,15 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 			VALUES 
 				($1, $2, $3, 'user_cash', 'USDC', $4, 'settlement'),
 				($1, $2, $3, 'pool_collateral', 'USDC', $5, 'settlement'),
-				($1, $2, $3, $6, $7, $8, 'settlement');
+				($1, $2, $3, $6, $7, $8, 'settlement'),
+				($1, $2, $3, 'pool_shares', $7, $9, 'settlement');
 		`
 		posAccount := "position_" + strings.ToLower(winningOutcome)
 		negPayout := payout.Neg()
 		negShares := w.shares.Neg()
 		if _, err := tx.Exec(ctx, insertLedger,
 			settlementTxID, w.userID, marketID,
-			payout, negPayout, posAccount, winningOutcome, negShares,
+			payout, negPayout, posAccount, winningOutcome, negShares, w.shares,
 		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to record settlement ledger entries"})
 			return
@@ -376,11 +377,13 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 
 			insertLoseLedger := `
 				INSERT INTO ledger_entries (transaction_id, user_id, market_id, account, asset, delta, entry_type)
-				VALUES ($1, $2, $3, $4, $5, $6, 'settlement');
+				VALUES 
+					($1, $2, $3, $4, $5, $6, 'settlement'),
+					($1, $2, $3, 'pool_shares', $5, $7, 'settlement');
 			`
 			posAccount := "position_" + strings.ToLower(l.outcome)
 			negShares := l.shares.Neg()
-			_, _ = tx.Exec(ctx, insertLoseLedger, settlementTxID, l.userID, marketID, posAccount, l.outcome, negShares)
+			_, _ = tx.Exec(ctx, insertLoseLedger, settlementTxID, l.userID, marketID, posAccount, l.outcome, negShares, l.shares)
 		}
 	}
 
@@ -587,72 +590,90 @@ func (h *AdminHandler) HandleCreateMarket(c *gin.Context) {
 	reserveNo := collateral.Mul(probYes).Truncate(8)
 	kInvariant := reserveYes.Mul(reserveNo)
 
-	// 3. Unique slug generation
+	// 3. Unique slug generation & atomic database insertion with collision retry
 	baseSlug := slugifyTitle(req.Title)
-	slug := baseSlug
-	for i := 0; i < 5; i++ {
-		var exists bool
-		err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM markets WHERE slug = $1)", slug).Scan(&exists)
-		if err == nil && !exists {
-			break
-		}
-		slug = fmt.Sprintf("%s-%s", baseSlug, uuid.New().String()[:6])
-	}
-
 	imageURL := strings.TrimSpace(req.ImageURL)
 	if imageURL == "" {
 		imageURL = fmt.Sprintf("/assets/markets/%s.webp", req.Category)
 	}
 
-	// 4. Atomic database insertion
-	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "database_error",
-			"message": "Failed to begin transaction",
-		})
-		return
-	}
-	defer tx.Rollback(ctx)
-
 	var (
 		marketID  uuid.UUID
 		createdAt time.Time
+		slug      string
 	)
+
 	queryMarket := `
 		INSERT INTO markets (slug, title, description, category, image_url, resolution_source, resolution_date, status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
 		RETURNING id, created_at;
 	`
-	err = tx.QueryRow(ctx, queryMarket,
-		slug, req.Title, req.Description, req.Category, imageURL, req.ResolutionSource, resolutionDate,
-	).Scan(&marketID, &createdAt)
-	if err != nil {
-		log.Printf("[Admin CreateMarket] failed to insert market record: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "database_error",
-			"message": "Failed to insert market record",
-		})
-		return
-	}
-
 	queryPool := `
 		INSERT INTO liquidity_pools (market_id, reserve_yes, reserve_no, collateral_reserve, k_invariant, total_volume_usdc, lock_version)
 		VALUES ($1, $2, $3, $4, $5, 0, 0);
 	`
-	if _, err := tx.Exec(ctx, queryPool, marketID, reserveYes, reserveNo, collateral, kInvariant); err != nil {
-		log.Printf("[Admin CreateMarket] failed to insert liquidity pool: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "database_error",
-			"message": "Failed to insert liquidity pool",
-		})
-		return
+
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt == 0 {
+			slug = baseSlug
+		} else {
+			slug = fmt.Sprintf("%s-%s", baseSlug, uuid.New().String()[:6])
+		}
+
+		tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "database_error",
+				"message": "Failed to begin transaction",
+			})
+			return
+		}
+
+		err = tx.QueryRow(ctx, queryMarket,
+			slug, req.Title, req.Description, req.Category, imageURL, req.ResolutionSource, resolutionDate,
+		).Scan(&marketID, &createdAt)
+
+		if err != nil {
+			_ = tx.Rollback(ctx)
+			// If unique slug constraint violation occurs, retry with an appended unique suffix.
+			if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") || strings.Contains(err.Error(), "23505") {
+				continue
+			}
+			log.Printf("[Admin CreateMarket] failed to insert market record: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "database_error",
+				"message": "Failed to insert market record",
+			})
+			return
+		}
+
+		if _, err := tx.Exec(ctx, queryPool, marketID, reserveYes, reserveNo, collateral, kInvariant); err != nil {
+			_ = tx.Rollback(ctx)
+			log.Printf("[Admin CreateMarket] failed to insert liquidity pool: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "database_error",
+				"message": "Failed to insert liquidity pool",
+			})
+			return
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			log.Printf("[Admin CreateMarket] failed to commit market creation: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "database_error",
+				"message": "Failed to commit market creation transaction",
+			})
+			return
+		}
+
+		// Market creation succeeded!
+		break
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "database_error",
-			"message": "Failed to commit market creation transaction",
+	if marketID == uuid.Nil {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "slug_conflict",
+			"message": "Failed to allocate a unique market slug after multiple attempts",
 		})
 		return
 	}
