@@ -5,7 +5,7 @@ import { RouterLink } from '@angular/router';
 import { LucideCheck, LucideShieldCheck, LucidePlus, LucideArrowRight, LucideInfo, LucideArrowUp, LucideArrowDown, LucideCheckCircle2 } from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
 import { ToastService } from '../../shared/components/toast/toast.service';
-import { Market, CreateMarketRequest, CreateMarketResponse } from '../../core/models/market.model';
+import { Market, CreateMarketRequest, CreateMarketResponse, ResolveMarketResponse } from '../../core/models/market.model';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { BadgeComponent } from '../../shared/components/badge/badge.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -438,6 +438,28 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                                             <span class="stat-v tabular-nums">&#36;{{ res.total_payout_usdc }} USDC</span>
                                         </div>
                                     </div>
+                                    @if (res.settlement_digest || res.proof_hash) {
+                                        <div class="res-audit-section">
+                                            @if (res.settlement_digest) {
+                                                <div class="res-audit-row">
+                                                    <span class="stat-k">Settlement Digest:</span>
+                                                    <code class="audit-digest-val">{{ res.settlement_digest }}</code>
+                                                </div>
+                                            }
+                                            @if (res.proof_hash) {
+                                                <div class="res-audit-row">
+                                                    <span class="stat-k">Proof Hash:</span>
+                                                    <code class="audit-digest-val">{{ res.proof_hash }}</code>
+                                                </div>
+                                            }
+                                            @if (res.oracle_proof) {
+                                                <div class="res-audit-row">
+                                                    <span class="stat-k">Oracle Proof:</span>
+                                                    <code class="audit-digest-val">{{ res.oracle_proof }}</code>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                 </div>
                             }
                         </div>
@@ -933,6 +955,31 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 flex-direction: column;
                 gap: 2px;
             }
+
+            .res-audit-section {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                padding-top: 12px;
+                border-top: 1px solid rgba(16, 185, 129, 0.2);
+            }
+
+            .res-audit-row {
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+            }
+
+            .audit-digest-val {
+                font-family: var(--font-mono, monospace);
+                font-size: 11px;
+                color: var(--ink-secondary, #9d97b8);
+                word-break: break-all;
+                background: rgba(0, 0, 0, 0.25);
+                padding: 4px 8px;
+                border-radius: var(--radius-xs, 4px);
+                border: 1px solid rgba(255, 255, 255, 0.06);
+            }
         `
     ]
 })
@@ -967,12 +1014,7 @@ export class AdminDashboardComponent implements OnInit {
     readonly selectedMarketId = signal<string>('');
     readonly winningOutcome = signal<'YES' | 'NO'>('YES');
     readonly oracleProof = signal<string>('');
-    readonly resolutionSummary = signal<{
-        status: string;
-        winning_outcome: string;
-        winners_credited: number;
-        total_payout_usdc: string;
-    } | null>(null);
+    readonly resolutionSummary = signal<ResolveMarketResponse | null>(null);
 
     onValueChange(targetSignal: WritableSignal<string>, val: string | number): void {
         targetSignal.set(String(val ?? ''));

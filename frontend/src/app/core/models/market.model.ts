@@ -133,6 +133,8 @@ export interface ResolveMarketResponse {
     total_payout_usdc: string;
     winners_credited: number;
     oracle_proof: string;
+    proof_hash?: string;
+    settlement_digest?: string;
     resolved_at: string;
 }
 

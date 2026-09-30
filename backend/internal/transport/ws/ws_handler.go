@@ -118,9 +118,12 @@ func (h *WSHandler) serveWS(c *gin.Context, marketID string) {
 	client := NewClient(h.hub, conn, marketID)
 	client.SetOnClose(func() {
 		h.ipConnMu.Lock()
-		h.ipConns[clientIP]--
-		if h.ipConns[clientIP] <= 0 {
-			delete(h.ipConns, clientIP)
+		if count, ok := h.ipConns[clientIP]; ok {
+			if count <= 1 {
+				delete(h.ipConns, clientIP)
+			} else {
+				h.ipConns[clientIP] = count - 1
+			}
 		}
 		h.ipConnMu.Unlock()
 	})

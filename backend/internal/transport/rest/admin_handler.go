@@ -34,6 +34,7 @@ type CreateMarketRequest struct {
 	ImageURL              string `json:"image_url"`
 	InitialCollateralUSDC string `json:"initial_collateral_usdc"` // e.g. "10000.00000000" (default 10000)
 	InitialProbabilityYes string `json:"initial_probability_yes"` // e.g. "0.50000000" or "50" (default 0.5)
+	InitialProbabilityNo  string `json:"initial_probability_no"`  // e.g. "0.50000000" or "50" (optional)
 }
 
 // ResolveMarketRequest defines input payload for settling a prediction market.
@@ -597,12 +598,49 @@ func (h *AdminHandler) HandleCreateMarket(c *gin.Context) {
 	}
 
 	probNo := decimal.NewFromInt(1).Sub(probYes)
+	if req.InitialProbabilityNo != "" {
+		pNoDec, err := decimal.NewFromString(strings.TrimSpace(req.InitialProbabilityNo))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid_probability",
+				"message": "Initial probability NO must be a decimal (0.01 to 0.99) or percentage (1 to 99)",
+			})
+			return
+		}
+		if pNoDec.GreaterThan(decimal.NewFromInt(1)) {
+			pNoDec = pNoDec.Div(decimal.NewFromInt(100))
+		}
+		if pNoDec.LessThan(decimal.NewFromFloat(0.01)) || pNoDec.GreaterThan(decimal.NewFromFloat(0.99)) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid_probability",
+				"message": "Initial probability NO must be between 1% (0.01) and 99% (0.99)",
+			})
+			return
+		}
+		// Enforce |P_YES + P_NO - 1| < 0.000001
+		diff := probYes.Add(pNoDec).Sub(decimal.NewFromInt(1)).Abs()
+		if diff.GreaterThan(decimal.RequireFromString("0.000001")) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "invalid_probability",
+				"message": "Sum of P_YES and P_NO must equal 1.0 within declared precision",
+			})
+			return
+		}
+		probNo = pNoDec
+	}
 
 	// Fixed-point CPMM inventory derivation:
-	// Setting R_yes = Collateral * (1 - P_yes) and R_no = Collateral * P_yes guarantees:
-	// R_yes + R_no = Collateral, so P_yes = R_no / Collateral
+	// Setting R_yes = Collateral * (1 - P_yes) and R_no = Collateral - R_yes guarantees:
+	// R_yes + R_no = Collateral exact to 8 decimal places, so P_yes = R_no / Collateral
 	reserveYes := collateral.Mul(probNo).Truncate(8)
-	reserveNo := collateral.Mul(probYes).Truncate(8)
+	reserveNo := collateral.Sub(reserveYes)
+	if reserveYes.LessThanOrEqual(decimal.Zero) || reserveNo.LessThanOrEqual(decimal.Zero) || reserveYes.Add(reserveNo).GreaterThan(collateral) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "invalid_reserves",
+			"message": "Derived reserves must be positive and not exceed total collateral",
+		})
+		return
+	}
 	kInvariant := reserveYes.Mul(reserveNo)
 
 	// 3. Unique slug generation & atomic database insertion with collision retry

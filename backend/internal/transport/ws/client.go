@@ -70,6 +70,9 @@ func (c *Client) Close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
 		_ = c.conn.Close()
+		if c.onClose != nil {
+			c.onClose()
+		}
 	})
 }
 
@@ -83,9 +86,6 @@ func (c *Client) readPump() {
 		case <-c.done:
 		}
 		c.Close()
-		if c.onClose != nil {
-			c.onClose()
-		}
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
@@ -123,6 +123,7 @@ func (c *Client) writePump() {
 			return
 		case message, ok := <-c.send:
 			if !ok {
+				_ = c.conn.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""), time.Now().Add(writeWait))
 				return
 			}
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
