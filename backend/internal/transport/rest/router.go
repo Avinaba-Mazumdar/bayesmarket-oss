@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"fmt"
 	"net/http"
+	"net/url"
 	"runtime"
 	"strings"
 	"time"
@@ -140,7 +141,7 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		_ = router.SetTrustedProxies(nil)
 	}
 	router.Use(
-		gin.Logger(),
+		redactedLogger(),
 		gin.Recovery(),
 		gzipMiddleware(),
 		maxBodySizeMiddleware(1<<20), // 1MB payload ceiling
@@ -347,4 +348,66 @@ bayesmarket_up 1
 	}
 
 	return router
+}
+
+// redactedLogger returns a gin.HandlerFunc that redacts sensitive query parameters
+// (such as idempotency keys, auth tokens, secrets, credentials) before outputting logs.
+func redactedLogger() gin.HandlerFunc {
+	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
+		var statusColor, methodColor, resetColor string
+		if param.IsOutputColor() {
+			statusColor = param.StatusCodeColor()
+			methodColor = param.MethodColor()
+			resetColor = param.ResetColor()
+		}
+
+		if param.Latency > time.Minute {
+			param.Latency = param.Latency.Truncate(time.Second)
+		}
+
+		redactedPath := redactQueryPath(param.Path)
+
+		return fmt.Sprintf("[GIN] %v |%s %3d %s| %13v | %15s |%s %-7s %s %#v\n%s",
+			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+			statusColor, param.StatusCode, resetColor,
+			param.Latency,
+			param.ClientIP,
+			methodColor, param.Method, resetColor,
+			redactedPath,
+			param.ErrorMessage,
+		)
+	})
+}
+
+// redactQueryPath parses rawPath, redacts any sensitive query parameters, and returns the sanitized path.
+func redactQueryPath(rawPath string) string {
+	u, err := url.Parse(rawPath)
+	if err != nil {
+		return rawPath
+	}
+	q := u.Query()
+	if len(q) == 0 {
+		return rawPath
+	}
+
+	for key := range q {
+		lower := strings.ToLower(key)
+		if isSensitiveParam(lower) {
+			q.Set(key, "REDACTED")
+		}
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+// isSensitiveParam checks whether a query parameter key represents sensitive data that should not appear in server logs.
+func isSensitiveParam(k string) bool {
+	switch k {
+	case "token", "access_token", "id_token", "refresh_token", "code", "state", "secret", "password", "key", "api_key", "apikey", "auth", "authorization", "signature", "sig", "oracle_proof", "idempotency_key", "idempotency-key":
+		return true
+	}
+	return strings.Contains(k, "token") ||
+		strings.Contains(k, "secret") ||
+		strings.Contains(k, "password") ||
+		strings.Contains(k, "idempotency")
 }

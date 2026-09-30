@@ -8,11 +8,6 @@ import (
 	"github.com/shopspring/decimal"
 )
 
-func init() {
-	// Enforce 28 decimal places of precision for all division operations
-	decimal.DivisionPrecision = 28
-}
-
 // Outcome represents the binary outcome token type.
 type Outcome string
 

@@ -151,7 +151,7 @@ When depositing $\Delta USDC$ to purchase `YES` shares:
 
 ## Quick Start with Docker (1-Command)
 
-Run the entire platform locally — including PostgreSQL 17, automated database migrations, pre-calibrated prediction markets, Go trading engine, and Angular 22 frontend — with a single command:
+Run the entire platform locally — including PostgreSQL 18, automated database migrations, pre-calibrated prediction markets, Go trading engine, and Angular 22 frontend — with a single command:
 
 ```bash
 # Clone the repository
@@ -179,7 +179,7 @@ If developing locally without Docker:
 - **Go**: `v1.24+`
 - **Node.js**: `v22+` (or `v24 LTS`)
 - **pnpm**: `v10+` (or `npm`)
-- **PostgreSQL**: Local PostgreSQL 17 or **[Neon.tech](https://neon.tech)**
+- **PostgreSQL**: Local PostgreSQL 18 or **[Neon.tech](https://neon.tech)**
 
 ### 1. Environment Configuration
 

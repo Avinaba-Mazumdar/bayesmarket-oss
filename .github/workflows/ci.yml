@@ -1,106 +1,129 @@
 name: CI
 
 on:
-  push:
-    branches: [ "master", "main" ]
-  pull_request:
-    branches: [ "master", "main" ]
+    push:
+        branches: ['master', 'main']
+    pull_request:
+        branches: ['master', 'main']
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Backend (Go Engine & Tests)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+    backend:
+        name: Backend (Go Engine & Tests)
+        runs-on: ubuntu-latest
+        services:
+            postgres:
+                image: postgres:18-alpine
+                env:
+                    POSTGRES_USER: bayesuser
+                    POSTGRES_PASSWORD: bayespassword
+                    POSTGRES_DB: bayesmarket
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd pg_isready
+                    --health-interval 5s
+                    --health-timeout 5s
+                    --health-retries 5
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.x'
-          check-latest: true
-          cache-dependency-path: backend/go.sum
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: '1.24.x'
+                  check-latest: true
+                  cache-dependency-path: backend/go.sum
 
-      - name: Verify Go Module Dependencies
-        run: |
-          cd backend
-          go mod verify
+            - name: Verify Go Module Dependencies
+              run: |
+                  cd backend
+                  go mod verify
 
-      - name: Check Go Formatting
-        run: |
-          cd backend
-          diffs=$(gofmt -l .)
-          if [ -n "$diffs" ]; then
-            echo "Unformatted Go files detected:"
-            echo "$diffs"
-            exit 1
-          fi
+            - name: Check Go Formatting
+              run: |
+                  cd backend
+                  diffs=$(gofmt -l .)
+                  if [ -n "$diffs" ]; then
+                    echo "Unformatted Go files detected:"
+                    echo "$diffs"
+                    exit 1
+                  fi
 
-      - name: Go Vet
-        run: |
-          cd backend
-          go vet ./...
+            - name: Go Vet
+              run: |
+                  cd backend
+                  go vet ./...
 
-      - name: Run AMM Financial Engine Tests (with Race Detector)
-        run: |
-          cd backend
-          go test -v -race ./internal/amm/... ./internal/config/... ./internal/middleware/...
+            - name: Run Backend Engine & Transport Test Suites (with Race Detector)
+              env:
+                  DATABASE_URL: postgres://bayesuser:bayespassword@localhost:5432/bayesmarket?sslmode=disable
+                  JWT_SECRET: bayesmarket-development-hmac-sha256-default-secret-key-32b
+                  ADMIN_TOKEN: test-admin-token-secret
+              run: |
+                  cd backend
+                  go test -v -race ./internal/...
 
-      - name: Build Backend Binary
-        run: |
-          cd backend
-          CGO_ENABLED=0 go build -v -o bin/api cmd/api/main.go
+            - name: Build Backend Binary
+              run: |
+                  cd backend
+                  CGO_ENABLED=0 go build -v -o bin/api cmd/api/main.go
 
-  frontend:
-    name: Frontend (Angular Zoneless Build)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+    frontend:
+        name: Frontend (Angular Zoneless Build)
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
 
-      - name: Install Root & Workspace Dependencies
-        run: pnpm install --no-frozen-lockfile
+            - name: Install Root & Workspace Dependencies
+              run: pnpm install --no-frozen-lockfile
 
-      - name: Build Angular Frontend (Production Bundle)
-        run: |
-          cd frontend
-          pnpm build
+            - name: Run Frontend Unit Tests
+              run: |
+                  cd frontend
+                  pnpm test -- --watch=false
 
-  code-quality:
-    name: Code Quality & Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+            - name: Build Angular Frontend (Production Bundle)
+              run: |
+                  cd frontend
+                  pnpm build
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 11
+    code-quality:
+        name: Code Quality & Format
+        runs-on: ubuntu-latest
+        steps:
+            - name: Check out repository
+              uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: 'pnpm'
+            - name: Install pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
 
-      - name: Install Dependencies
-        run: pnpm install --no-frozen-lockfile
+            - name: Set up Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
 
-      - name: Verify Prettier Code Formatting
-        run: pnpm lint:format
+            - name: Install Dependencies
+              run: pnpm install --no-frozen-lockfile
+
+            - name: Verify Prettier Code Formatting
+              run: pnpm lint:format
