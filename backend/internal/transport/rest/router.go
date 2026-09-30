@@ -176,7 +176,7 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	// Handlers
 	authHandler := NewAuthHandler(pool, cfg)
 	marketHandler := NewMarketHandler(pool, marketCache)
-	faucetHandler := NewFaucetHandler(pool)
+	faucetHandler := NewFaucetHandler(pool, isDevOrLocal)
 	portfolioHandler := NewPortfolioHandler(pool)
 	tradeHandler := NewTradeHandler(pool, hub)
 	tradeHandler.SetCache(marketCache)
