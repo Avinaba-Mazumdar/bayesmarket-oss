@@ -11,17 +11,19 @@ import (
 
 // Config encapsulates validated runtime configuration settings.
 type Config struct {
-	DatabaseURL        string
-	ServerPort         string
-	CORSOrigin         string
-	JWTSecret          string
-	Environment        string
-	AdminToken         string
-	GoogleClientID     string
-	GoogleClientSecret string
-	GoogleRedirectURI  string
-	DisableRateLimits  bool
-	TrustedProxies     []string
+	DatabaseURL          string
+	MigrationDatabaseURL string
+	AutoMigrate          bool
+	ServerPort           string
+	CORSOrigin           string
+	JWTSecret            string
+	Environment          string
+	AdminToken           string
+	GoogleClientID       string
+	GoogleClientSecret   string
+	GoogleRedirectURI    string
+	DisableRateLimits    bool
+	TrustedProxies       []string
 }
 
 // Load reads configuration from environment variables and local .env files.
@@ -38,6 +40,16 @@ func Load() (*Config, error) {
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		log.Println("[INFO] DATABASE_URL environment variable is not set. Operating in disconnected sandbox mode.")
+	}
+
+	migrationDBURL := os.Getenv("MIGRATION_DATABASE_URL")
+
+	autoMigrate := true
+	if rawAutoMigrate := os.Getenv("AUTO_MIGRATE"); rawAutoMigrate != "" {
+		lower := strings.ToLower(strings.TrimSpace(rawAutoMigrate))
+		if lower == "false" || lower == "0" || lower == "no" {
+			autoMigrate = false
+		}
 	}
 
 	port := os.Getenv("SERVER_PORT")
@@ -102,16 +114,18 @@ func Load() (*Config, error) {
 	}
 
 	return &Config{
-		DatabaseURL:        strings.TrimSpace(dbURL),
-		ServerPort:         strings.TrimSpace(port),
-		CORSOrigin:         strings.TrimSpace(corsOrigin),
-		JWTSecret:          strings.TrimSpace(jwtSecret),
-		Environment:        strings.TrimSpace(env),
-		AdminToken:         strings.TrimSpace(adminToken),
-		GoogleClientID:     strings.TrimSpace(googleClientID),
-		GoogleClientSecret: strings.TrimSpace(googleClientSecret),
-		GoogleRedirectURI:  strings.TrimSpace(googleRedirectURI),
-		TrustedProxies:     trustedProxies,
+		DatabaseURL:          strings.TrimSpace(dbURL),
+		MigrationDatabaseURL: strings.TrimSpace(migrationDBURL),
+		AutoMigrate:          autoMigrate,
+		ServerPort:           strings.TrimSpace(port),
+		CORSOrigin:           strings.TrimSpace(corsOrigin),
+		JWTSecret:            strings.TrimSpace(jwtSecret),
+		Environment:          strings.TrimSpace(env),
+		AdminToken:           strings.TrimSpace(adminToken),
+		GoogleClientID:       strings.TrimSpace(googleClientID),
+		GoogleClientSecret:   strings.TrimSpace(googleClientSecret),
+		GoogleRedirectURI:    strings.TrimSpace(googleRedirectURI),
+		TrustedProxies:       trustedProxies,
 	}, nil
 }
 
