@@ -20,6 +20,7 @@ import { ApiService } from '../../core/services/api.service';
 import { AuthStore } from '../../state/auth.store';
 import { ToastService } from '../../shared/components/toast/toast.service';
 import { Market, CreateMarketRequest, CreateMarketResponse, EditMarketRequest, ResolveMarketResponse } from '../../core/models/market.model';
+import { DialogComponent } from '../../shared/components/dialog/dialog.component';
 import { ButtonComponent } from '../../shared/components/button/button.component';
 import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { InputComponent } from '../../shared/components/input/input.component';
@@ -38,6 +39,7 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
         CommonModule,
         FormsModule,
         RouterLink,
+        DialogComponent,
         ButtonComponent,
         BadgeComponent,
         BrandIconComponent,
@@ -55,8 +57,7 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
         LucideCheckCircle2,
         LucidePencil,
         LucideTrash2,
-        LucideSliders,
-        LucideX
+        LucideSliders
     ],
     template: `
         <div class="admin-container" role="main">
@@ -632,143 +633,138 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 }
 
                 <!-- Edit Market Modal Dialog -->
-                @if (editingMarket(); as em) {
-                    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-dialog-title">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <div class="modal-title-row">
-                                    <svg lucidePencil class="modal-icon" [size]="20" aria-hidden="true"></svg>
-                                    <h3 id="edit-dialog-title" class="modal-title">Edit Prediction Market</h3>
-                                </div>
-                                <button type="button" class="modal-close-btn" (click)="closeEditModal()" aria-label="Close dialog">
-                                    <svg lucideX [size]="20" aria-hidden="true"></svg>
-                                </button>
+                <app-dialog
+                    [open]="!!editingMarket()"
+                    (closed)="closeEditModal()"
+                    title="Edit Prediction Market"
+                    description="Modify live market question, status, or resolution criteria."
+                    size="lg"
+                    role="dialog"
+                    ariaLabel="Edit Prediction Market Dialog"
+                >
+                    @if (editingMarket(); as em) {
+                        <form class="market-form" (submit)="onSubmitEditMarket($event)">
+                            <div class="form-group">
+                                <app-label htmlFor="edit-title">Market Question / Title *</app-label>
+                                <app-input
+                                    id="edit-title"
+                                    [value]="editTitle()"
+                                    (valueChange)="onValueChange(editTitle, $event)"
+                                    ariaLabel="Edit Market Title"
+                                />
                             </div>
 
-                            <form class="modal-body market-form" (submit)="onSubmitEditMarket($event)">
+                            <div class="form-row-2">
                                 <div class="form-group">
-                                    <app-label htmlFor="edit-title">Market Question / Title *</app-label>
-                                    <app-input
-                                        id="edit-title"
-                                        [value]="editTitle()"
-                                        (valueChange)="onValueChange(editTitle, $event)"
-                                        ariaLabel="Edit Market Title"
+                                    <app-label htmlFor="edit-category">Category *</app-label>
+                                    <app-select
+                                        id="edit-category"
+                                        [options]="categoryOptions"
+                                        [value]="editCategory()"
+                                        (valueChange)="editCategory.set($event)"
+                                        ariaLabel="Edit Market Category"
                                     />
                                 </div>
-
-                                <div class="form-row-2">
-                                    <div class="form-group">
-                                        <app-label htmlFor="edit-category">Category *</app-label>
-                                        <app-select
-                                            id="edit-category"
-                                            [options]="categoryOptions"
-                                            [value]="editCategory()"
-                                            (valueChange)="editCategory.set($event)"
-                                            ariaLabel="Edit Market Category"
-                                        />
-                                    </div>
-                                    <div class="form-group">
-                                        <app-label htmlFor="edit-status">Status *</app-label>
-                                        <app-select
-                                            id="edit-status"
-                                            [options]="statusOptions"
-                                            [value]="editStatus()"
-                                            (valueChange)="onStatusChange($event)"
-                                            ariaLabel="Edit Market Status"
-                                        />
-                                    </div>
-                                </div>
-
                                 <div class="form-group">
-                                    <app-label htmlFor="edit-date">Resolution Date (UTC) *</app-label>
-                                    <app-input
-                                        id="edit-date"
-                                        type="datetime-local"
-                                        variant="mono"
-                                        [value]="editResolutionDateInput()"
-                                        (valueChange)="onValueChange(editResolutionDateInput, $event)"
-                                        ariaLabel="Edit Resolution Date"
+                                    <app-label htmlFor="edit-status">Status *</app-label>
+                                    <app-select
+                                        id="edit-status"
+                                        [options]="statusOptions"
+                                        [value]="editStatus()"
+                                        (valueChange)="onStatusChange($event)"
+                                        ariaLabel="Edit Market Status"
                                     />
                                 </div>
+                            </div>
 
-                                <div class="form-group">
-                                    <app-label htmlFor="edit-desc">Detailed Resolution Criteria *</app-label>
-                                    <app-textarea
-                                        id="edit-desc"
-                                        [rows]="3"
-                                        [value]="editDescription()"
-                                        (valueChange)="editDescription.set($event)"
-                                        ariaLabel="Edit Description"
-                                    />
-                                </div>
+                            <div class="form-group">
+                                <app-label htmlFor="edit-date">Resolution Date (UTC) *</app-label>
+                                <app-input
+                                    id="edit-date"
+                                    type="datetime-local"
+                                    variant="mono"
+                                    [value]="editResolutionDateInput()"
+                                    (valueChange)="onValueChange(editResolutionDateInput, $event)"
+                                    ariaLabel="Edit Resolution Date"
+                                />
+                            </div>
 
-                                <div class="form-group">
-                                    <app-label htmlFor="edit-source">Authoritative Resolution Source *</app-label>
-                                    <app-input
-                                        id="edit-source"
-                                        [value]="editResolutionSource()"
-                                        (valueChange)="onValueChange(editResolutionSource, $event)"
-                                        ariaLabel="Edit Resolution Source"
-                                    />
-                                </div>
+                            <div class="form-group">
+                                <app-label htmlFor="edit-desc">Detailed Resolution Criteria *</app-label>
+                                <app-textarea
+                                    id="edit-desc"
+                                    [rows]="3"
+                                    [value]="editDescription()"
+                                    (valueChange)="editDescription.set($event)"
+                                    ariaLabel="Edit Description"
+                                />
+                            </div>
 
-                                <div class="form-group">
-                                    <app-label htmlFor="edit-image">Image URL</app-label>
-                                    <app-input
-                                        id="edit-image"
-                                        [value]="editImageUrl()"
-                                        (valueChange)="onValueChange(editImageUrl, $event)"
-                                        ariaLabel="Edit Image URL"
-                                    />
-                                </div>
+                            <div class="form-group">
+                                <app-label htmlFor="edit-source">Authoritative Resolution Source *</app-label>
+                                <app-input
+                                    id="edit-source"
+                                    [value]="editResolutionSource()"
+                                    (valueChange)="onValueChange(editResolutionSource, $event)"
+                                    ariaLabel="Edit Resolution Source"
+                                />
+                            </div>
 
-                                <div class="modal-footer">
-                                    <app-button variant="outline" size="default" type="button" (btnClick)="closeEditModal()" ariaLabel="Cancel editing">
-                                        Cancel
-                                    </app-button>
-                                    <app-button variant="primary" size="default" [loading]="isEditingSubmitting()" ariaLabel="Save market changes">
-                                        Save Changes
-                                    </app-button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                }
+                            <div class="form-group">
+                                <app-label htmlFor="edit-image">Image URL</app-label>
+                                <app-input
+                                    id="edit-image"
+                                    [value]="editImageUrl()"
+                                    (valueChange)="onValueChange(editImageUrl, $event)"
+                                    ariaLabel="Edit Image URL"
+                                />
+                            </div>
+
+                            <div class="dialog-actions">
+                                <app-button variant="outline" size="default" type="button" (btnClick)="closeEditModal()" ariaLabel="Cancel editing">
+                                    Cancel
+                                </app-button>
+                                <app-button variant="primary" size="default" type="submit" [loading]="isEditingSubmitting()" ariaLabel="Save market changes">
+                                    Save Changes
+                                </app-button>
+                            </div>
+                        </form>
+                    }
+                </app-dialog>
 
                 <!-- Delete Confirmation Modal -->
-                @if (deletingMarket(); as dm) {
-                    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
-                        <div class="modal-content modal-content-sm">
-                            <div class="modal-header">
-                                <div class="modal-title-row">
-                                    <svg lucideTrash2 class="modal-icon text-destructive" [size]="20" aria-hidden="true"></svg>
-                                    <h3 id="delete-dialog-title" class="modal-title">Delete Prediction Market</h3>
-                                </div>
-                                <button type="button" class="modal-close-btn" (click)="closeDeleteModal()" aria-label="Close dialog">
-                                    <svg lucideX [size]="20" aria-hidden="true"></svg>
-                                </button>
+                <app-dialog
+                    [open]="!!deletingMarket()"
+                    (closed)="closeDeleteModal()"
+                    title="Delete Prediction Market"
+                    description="Permanently delete prediction market and purge double-entry records."
+                    size="sm"
+                    role="alertdialog"
+                    ariaLabel="Delete Prediction Market Alert"
+                >
+                    @if (deletingMarket(); as dm) {
+                        <div class="delete-body">
+                            <p class="delete-warning-text">Are you sure you want to permanently delete this market?</p>
+                            <div class="delete-market-preview">
+                                <span class="preview-label">Market Question:</span>
+                                <strong class="preview-title">{{ dm.title }}</strong>
+                                <span class="mono-sub">ID: {{ dm.id }}</span>
+                            </div>
+                            <div class="danger-box">
+                                <p class="danger-text">
+                                    Warning: This permanently removes the market record, all liquidity pool balances, order-flow trades, and double-entry ledger
+                                    entries from Neon DB. This action cannot be reversed.
+                                </p>
                             </div>
 
-                            <div class="modal-body delete-body">
-                                <p class="delete-warning-text">Are you sure you want to permanently delete this market?</p>
-                                <div class="delete-market-preview">
-                                    <span class="preview-label">Market Question:</span>
-                                    <strong class="preview-title">{{ dm.title }}</strong>
-                                    <span class="mono-sub">ID: {{ dm.id }}</span>
-                                </div>
-                                <div class="danger-box">
-                                    <p class="danger-text">
-                                        Warning: This permanently removes the market record, all liquidity pool balances, order-flow trades, and double-entry
-                                        ledger entries from Neon DB. This action cannot be reversed.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="modal-footer">
-                                <app-button variant="outline" size="default" (btnClick)="closeDeleteModal()" ariaLabel="Cancel deletion"> Cancel </app-button>
+                            <div class="dialog-actions">
+                                <app-button variant="outline" size="default" type="button" (btnClick)="closeDeleteModal()" ariaLabel="Cancel deletion">
+                                    Cancel
+                                </app-button>
                                 <app-button
                                     variant="destructive"
                                     size="default"
+                                    type="button"
                                     [loading]="isDeletingSubmitting()"
                                     (btnClick)="confirmDeleteMarket()"
                                     ariaLabel="Confirm permanent deletion"
@@ -777,8 +773,8 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                                 </app-button>
                             </div>
                         </div>
-                    </div>
-                }
+                    }
+                </app-dialog>
             }
         </div>
     `,
@@ -787,9 +783,9 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             :host {
                 display: block;
                 min-height: calc(100vh - 60px);
-                background-color: var(--canvas, #07090e);
-                color: var(--ink, #f8f7ff);
-                padding: var(--space-xl, 32px) var(--space-lg, 20px) 80px;
+                background-color: var(--canvas);
+                color: var(--ink);
+                padding: var(--space-xl) var(--space-lg) 80px;
             }
 
             .admin-container {
@@ -797,82 +793,88 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 margin: 0 auto;
                 display: flex;
                 flex-direction: column;
-                gap: 28px;
+                gap: var(--space-xl);
             }
 
             .admin-header {
                 display: flex;
                 align-items: flex-start;
                 justify-content: space-between;
-                gap: 16px;
-                border-bottom: 1px solid var(--hairline, #1e2638);
-                padding-bottom: 24px;
+                gap: var(--space-md);
+                border-bottom: 1px solid var(--hairline);
+                padding-bottom: var(--space-xl);
+            }
+
+            .admin-badge-row,
+            .admin-title-row,
+            .header-right,
+            .admin-identity-pill,
+            .manage-header-actions,
+            .prob-cell,
+            .action-buttons-group,
+            .dialog-actions,
+            .success-header,
+            .res-summary-title,
+            .workspace-tabs,
+            .prob-split-labels,
+            .view-market-link {
+                display: flex;
+                align-items: center;
             }
 
             .admin-badge-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                margin-bottom: 10px;
+                gap: var(--space-xs);
+                margin-bottom: var(--space-xs);
             }
 
             .badge-icon {
-                margin-right: 4px;
-                color: var(--primary-border, #a855f7);
+                margin-right: var(--space-xxs);
+                color: var(--primary-border);
             }
 
             .env-tag {
                 font-family: var(--font-mono);
                 font-size: 11px;
                 font-weight: 700;
-                color: var(--status-warning, #f59e0b);
-                background-color: rgba(245, 158, 11, 0.1);
-                border: 1px solid rgba(245, 158, 11, 0.25);
-                padding: 2px 8px;
-                border-radius: var(--radius-sm, 4px);
+                color: var(--status-warning);
+                background-color: var(--status-warning-bg);
+                border: 1px solid var(--status-warning-border);
+                padding: var(--space-xxs) var(--space-xs);
+                border-radius: var(--radius-xs);
                 letter-spacing: 0.5px;
             }
 
             .admin-title-row {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin-bottom: 8px;
+                gap: var(--space-sm);
+                margin-bottom: var(--space-xs);
             }
 
             .admin-title {
-                font-family: var(--font-ui);
                 font-size: 28px;
                 font-weight: 800;
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
                 margin: 0;
-                letter-spacing: -0.5px;
+                letter-spacing: var(--letter-spacing-heading);
             }
 
             .admin-subtitle {
-                font-family: var(--font-ui);
                 font-size: 14px;
-                color: var(--muted, #9d97b8);
+                color: var(--muted);
                 max-width: 720px;
-                line-height: 1.5;
+                line-height: var(--line-height-prose);
                 margin: 0;
             }
 
             .header-right {
-                display: flex;
-                align-items: center;
-                gap: 12px;
+                gap: var(--space-sm);
             }
 
             .admin-identity-pill {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                background-color: rgba(168, 85, 247, 0.1);
-                border: 1px solid rgba(168, 85, 247, 0.3);
-                padding: 6px 12px;
-                border-radius: var(--radius-pill, 9999px);
-                font-family: var(--font-ui);
+                gap: var(--space-xs);
+                background-color: var(--primary-subtle);
+                border: 1px solid var(--primary-border);
+                padding: 6px var(--space-sm);
+                border-radius: var(--radius-pill);
                 font-size: 12px;
             }
 
@@ -880,130 +882,153 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 width: 7px;
                 height: 7px;
                 border-radius: 50%;
-                background-color: var(--outcome-yes, #10b981);
-                box-shadow: 0 0 6px var(--outcome-yes, #10b981);
+                background-color: var(--outcome-yes);
+                box-shadow: 0 0 6px var(--outcome-yes);
             }
 
             .identity-role {
                 font-weight: 700;
-                color: #a855f7;
+                color: var(--primary-text);
             }
 
             .identity-email {
-                color: var(--ink-secondary, #9d97b8);
+                color: var(--ink-secondary);
                 font-family: var(--font-mono);
                 font-size: 11px;
+            }
+
+            /* Common Card Containers */
+            .gatekeeper-card,
+            .form-card,
+            .preview-card,
+            .markets-table-container,
+            .empty-markets-card {
+                background-color: var(--surface-card);
+                border: 1px solid var(--hairline);
+                border-radius: var(--radius-lg);
             }
 
             /* Gatekeeper Card */
             .gatekeeper-card {
                 max-width: 520px;
-                margin: 40px auto;
-                background-color: var(--surface-card, #111622);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+                margin: var(--space-section) auto;
                 overflow: hidden;
             }
 
             .gatekeeper-body {
-                padding: 32px 28px;
+                padding: var(--space-xxl) var(--space-xl);
                 display: flex;
                 flex-direction: column;
                 align-items: center;
                 text-align: center;
-                gap: 16px;
+                gap: var(--space-md);
             }
 
             .gate-icon-circle {
                 width: 64px;
                 height: 64px;
                 border-radius: 50%;
-                background-color: rgba(168, 85, 247, 0.12);
-                border: 1px solid rgba(168, 85, 247, 0.3);
+                background-color: var(--primary-subtle);
+                border: 1px solid var(--primary-border);
                 display: flex;
                 align-items: center;
                 justify-content: center;
             }
 
             .gate-icon {
-                color: var(--primary-border, #a855f7);
+                color: var(--primary-border);
             }
 
-            .gate-title {
-                font-family: var(--font-ui);
-                font-size: 20px;
+            .gate-title,
+            .card-title,
+            .section-title,
+            .preview-title,
+            .empty-title {
+                font-size: 18px;
                 font-weight: 700;
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
+                margin: 0;
+            }
+
+            .section-title {
+                font-size: 20px;
+                margin-bottom: var(--space-xxs);
+            }
+
+            .section-desc,
+            .card-desc,
+            .preview-subtitle,
+            .empty-desc {
+                font-size: 13px;
+                color: var(--muted);
                 margin: 0;
             }
 
             .db-admin-notice {
                 width: 100%;
-                padding: 16px;
-                border-radius: var(--radius-md, 10px);
+                padding: var(--space-md);
+                border-radius: var(--radius-md);
                 text-align: left;
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: var(--space-xs);
+                box-sizing: border-box;
             }
 
             .db-admin-notice.warning-box {
-                background-color: rgba(245, 158, 11, 0.08);
-                border: 1px solid rgba(245, 158, 11, 0.3);
+                background-color: var(--status-warning-bg);
+                border: 1px solid var(--status-warning-border);
+                color: var(--status-warning);
             }
 
             .db-admin-notice.info-box {
-                background-color: rgba(168, 85, 247, 0.08);
-                border: 1px solid rgba(168, 85, 247, 0.3);
+                background-color: var(--status-info-bg);
+                border: 1px solid var(--status-info-border);
+                color: var(--status-info);
             }
 
             .notice-title {
-                font-family: var(--font-ui);
                 font-size: 13px;
                 font-weight: 700;
-                color: var(--status-warning, #f59e0b);
                 margin: 0;
             }
 
             .notice-desc {
-                font-family: var(--font-ui);
                 font-size: 12px;
-                color: var(--muted, #9d97b8);
+                color: var(--body);
                 margin: 0;
-                line-height: 1.4;
+                line-height: var(--line-height-prose);
             }
 
             .user-highlight {
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
             }
 
             .notice-sql-label {
-                font-family: var(--font-ui);
                 font-size: 11px;
                 font-weight: 600;
-                color: var(--ink-secondary, #9d97b8);
-                margin: 4px 0 0;
+                color: var(--ink-secondary);
+                margin: var(--space-xxs) 0 0;
             }
 
             .sql-code-block {
                 margin: 0;
-                padding: 8px 10px;
-                background-color: #07090e;
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-xs, 4px);
+                padding: var(--space-xs) var(--space-sm);
+                background-color: var(--surface-terminal);
+                border: 1px solid var(--hairline);
+                border-radius: var(--radius-xs);
                 font-family: var(--font-mono);
                 font-size: 11px;
-                color: #38bdf8;
+                color: var(--primary-text);
                 overflow-x: auto;
                 white-space: pre-wrap;
                 word-break: break-all;
             }
 
-            .notice-hint {
-                font-family: var(--font-ui);
+            .notice-hint,
+            .hint-text {
                 font-size: 11px;
-                color: var(--muted, #9d97b8);
+                color: var(--muted);
                 margin: 0;
             }
 
@@ -1011,9 +1036,10 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 width: 100%;
                 display: flex;
                 flex-direction: column;
-                gap: 14px;
-                margin-top: 8px;
+                gap: var(--space-sm);
+                margin-top: var(--space-xs);
                 text-align: left;
+                box-sizing: border-box;
             }
 
             .dev-hint-row {
@@ -1023,46 +1049,42 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 font-size: 12px;
             }
 
-            .hint-text {
-                color: var(--muted, #9d97b8);
-            }
-
             /* Workspace Tabs */
             .workspace-tabs {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                border-bottom: 1px solid var(--hairline, #1e2638);
-                padding-bottom: 8px;
+                gap: var(--space-xs);
+                border-bottom: 1px solid var(--hairline);
+                padding-bottom: var(--space-xs);
                 flex-wrap: wrap;
             }
 
             .tab-btn {
                 display: inline-flex;
                 align-items: center;
-                gap: 8px;
+                gap: var(--space-xs);
                 min-height: var(--touch-target-min, 40px);
-                padding: 8px 18px;
-                border-radius: var(--radius-md, 10px);
+                padding: var(--space-xs) var(--space-md);
+                border-radius: var(--radius-md);
                 background-color: transparent;
                 border: 1px solid transparent;
-                color: var(--muted, #9d97b8);
-                font-family: var(--font-ui);
+                color: var(--muted);
                 font-size: 14px;
                 font-weight: 600;
                 cursor: pointer;
-                transition: all 0.15s ease;
+                transition:
+                    color 0.15s ease,
+                    background-color 0.15s ease,
+                    border-color 0.15s ease;
             }
 
             .tab-btn:hover {
-                background-color: var(--surface-card, #111622);
-                color: var(--ink, #f8f7ff);
+                background-color: var(--surface-card);
+                color: var(--ink);
             }
 
             .tab-btn.active {
-                background-color: var(--surface-card-elevated, #171f30);
-                color: var(--ink, #f8f7ff);
-                border-color: var(--hairline, #1e2638);
+                background-color: var(--surface-card-elevated);
+                color: var(--ink);
+                border-color: var(--hairline);
                 font-weight: 700;
             }
 
@@ -1070,81 +1092,48 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             .manage-markets-pane {
                 display: flex;
                 flex-direction: column;
-                gap: 20px;
+                gap: var(--space-lg);
             }
 
             .manage-header-row {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                gap: 16px;
+                gap: var(--space-md);
                 flex-wrap: wrap;
             }
 
-            .section-title {
-                font-family: var(--font-ui);
-                font-size: 20px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                margin: 0 0 4px;
-            }
-
-            .section-desc {
-                font-family: var(--font-ui);
-                font-size: 13px;
-                color: var(--muted, #9d97b8);
-                margin: 0;
-            }
-
             .manage-header-actions {
-                display: flex;
-                align-items: center;
-                gap: 10px;
+                gap: var(--space-xs);
             }
 
             .empty-markets-card {
-                background-color: var(--surface-card, #111622);
-                border: 1px dashed var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
-                padding: 48px 24px;
+                border-style: dashed;
+                padding: var(--space-section) var(--space-xl);
                 text-align: center;
                 display: flex;
                 flex-direction: column;
                 align-items: center;
-                gap: 14px;
+                gap: var(--space-sm);
             }
 
             .empty-icon-circle {
                 width: 56px;
                 height: 56px;
                 border-radius: 50%;
-                background-color: rgba(168, 85, 247, 0.1);
-                color: #a855f7;
+                background-color: var(--primary-subtle);
+                color: var(--primary);
                 display: flex;
                 align-items: center;
                 justify-content: center;
             }
 
-            .empty-title {
-                font-family: var(--font-ui);
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                margin: 0;
-            }
-
             .empty-desc {
-                font-family: var(--font-ui);
-                font-size: 13px;
-                color: var(--muted, #9d97b8);
                 max-width: 440px;
-                margin: 0 0 8px;
+                margin-bottom: var(--space-xs);
             }
 
             .markets-table-container {
-                background-color: var(--surface-card, #111622);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
                 overflow-x: auto;
             }
 
@@ -1152,30 +1141,29 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 width: 100%;
                 border-collapse: collapse;
                 text-align: left;
-                font-family: var(--font-ui);
                 font-size: 13px;
             }
 
             .markets-table th {
-                padding: 14px 16px;
+                padding: 14px var(--space-md);
                 font-size: 11px;
                 font-weight: 700;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
-                color: var(--muted, #9d97b8);
-                border-bottom: 1px solid var(--hairline, #1e2638);
-                background-color: rgba(0, 0, 0, 0.2);
+                color: var(--muted);
+                border-bottom: 1px solid var(--hairline);
+                background-color: var(--canvas-subtle);
             }
 
             .markets-table td {
-                padding: 14px 16px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-                color: var(--ink, #f8f7ff);
+                padding: 14px var(--space-md);
+                border-bottom: 1px solid var(--hairline);
+                color: var(--ink);
                 vertical-align: middle;
             }
 
             .markets-table tbody tr:hover {
-                background-color: rgba(255, 255, 255, 0.02);
+                background-color: var(--canvas-subtle);
             }
 
             .td-market {
@@ -1185,59 +1173,52 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             .market-cell-title {
                 display: flex;
                 flex-direction: column;
-                gap: 4px;
+                gap: var(--space-xxs);
             }
 
             .table-market-link {
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
                 font-weight: 600;
                 text-decoration: none;
                 transition: color 0.15s ease;
             }
 
             .table-market-link:hover {
-                color: var(--accent, #00d4ff);
+                color: var(--link);
                 text-decoration: underline;
             }
 
             .mono-sub {
                 font-family: var(--font-mono);
                 font-size: 11px;
-                color: var(--muted, #9d97b8);
+                color: var(--muted);
             }
 
             .prob-cell {
                 font-family: var(--font-mono);
                 font-weight: 700;
-                display: flex;
-                align-items: center;
-                gap: 6px;
+                gap: var(--space-xxs);
             }
 
             .prob-yes {
-                color: var(--outcome-yes, #10b981);
+                color: var(--outcome-yes);
             }
 
             .prob-sep {
-                color: var(--hairline, #1e2638);
+                color: var(--hairline);
             }
 
             .prob-no {
-                color: var(--outcome-no, #fb7185);
+                color: var(--outcome-no);
             }
 
-            .th-actions {
-                text-align: right;
-            }
-
+            .th-actions,
             .td-actions {
                 text-align: right;
             }
 
             .action-buttons-group {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
+                gap: var(--space-xs);
                 justify-content: flex-end;
             }
 
@@ -1245,7 +1226,7 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             .create-market-grid {
                 display: grid;
                 grid-template-columns: 3fr 2fr;
-                gap: 24px;
+                gap: var(--space-xl);
             }
 
             @media (max-width: 900px) {
@@ -1255,46 +1236,28 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             }
 
             .form-card {
-                background-color: var(--surface-card, #111622);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
-                padding: 24px;
+                padding: var(--space-xl);
                 display: flex;
                 flex-direction: column;
-                gap: 16px;
-            }
-
-            .card-title {
-                font-family: var(--font-ui);
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                margin: 0;
-            }
-
-            .card-desc {
-                font-family: var(--font-ui);
-                font-size: 13px;
-                color: var(--muted, #9d97b8);
-                margin: 0;
+                gap: var(--space-md);
             }
 
             .market-form {
                 display: flex;
                 flex-direction: column;
-                gap: 16px;
+                gap: var(--space-md);
             }
 
             .form-group {
                 display: flex;
                 flex-direction: column;
-                gap: 6px;
+                gap: var(--space-xxs);
             }
 
             .form-row-2 {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 16px;
+                gap: var(--space-md);
             }
 
             @media (max-width: 600px) {
@@ -1304,63 +1267,44 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             }
 
             .form-actions {
-                margin-top: 10px;
+                margin-top: var(--space-xs);
             }
 
             /* Preview Column */
             .preview-column {
                 display: flex;
                 flex-direction: column;
-                gap: 20px;
+                gap: var(--space-lg);
             }
 
             .preview-card {
-                background-color: var(--surface-card, #111622);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
-                padding: 20px;
+                padding: var(--space-lg);
                 display: flex;
                 flex-direction: column;
-                gap: 16px;
-            }
-
-            .preview-title {
-                font-family: var(--font-ui);
-                font-size: 16px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                margin: 0;
-            }
-
-            .preview-subtitle {
-                font-family: var(--font-ui);
-                font-size: 12px;
-                color: var(--muted, #9d97b8);
-                margin: 0;
+                gap: var(--space-md);
             }
 
             .prob-visual-track {
                 width: 100%;
                 height: 10px;
-                border-radius: var(--radius-pill, 9999px);
+                border-radius: var(--radius-pill);
                 display: flex;
                 overflow: hidden;
-                background-color: #0c1017;
+                background-color: var(--canvas-subtle);
+                border: 1px solid var(--hairline);
             }
 
             .track-yes {
-                background-color: var(--outcome-yes, #10b981);
+                background-color: var(--outcome-yes);
                 transition: width 0.2s ease;
             }
 
             .track-no {
-                background-color: var(--outcome-no, #fb7185);
+                background-color: var(--outcome-no);
                 transition: width 0.2s ease;
             }
 
             .prob-split-labels {
-                display: flex;
-                align-items: center;
                 justify-content: space-between;
                 font-family: var(--font-mono);
                 font-size: 12px;
@@ -1368,111 +1312,103 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             }
 
             .label-yes {
-                color: var(--outcome-yes, #10b981);
+                color: var(--outcome-yes);
             }
 
             .label-no {
-                color: var(--outcome-no, #fb7185);
+                color: var(--outcome-no);
             }
 
             .preview-stats-grid {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 10px;
-                border-top: 1px solid var(--hairline, #1e2638);
-                padding-top: 14px;
+                gap: var(--space-xs);
+                border-top: 1px solid var(--hairline);
+                padding-top: var(--space-sm);
             }
 
             .stat-box {
                 display: flex;
                 flex-direction: column;
-                gap: 2px;
-                background-color: var(--canvas-subtle, #0c1017);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-md, 10px);
-                padding: 10px 12px;
+                gap: var(--space-xxs);
+                background-color: var(--canvas-subtle);
+                border: 1px solid var(--hairline);
+                border-radius: var(--radius-md);
+                padding: var(--space-xs) var(--space-sm);
             }
 
             .stat-k {
-                font-family: var(--font-ui);
                 font-size: 11px;
-                color: var(--muted, #9d97b8);
+                color: var(--muted);
             }
 
             .stat-v {
                 font-family: var(--font-mono);
                 font-size: 13px;
                 font-weight: 700;
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
                 font-feature-settings: 'tnum' 1;
             }
 
             .info-alert {
                 display: flex;
                 align-items: flex-start;
-                gap: 8px;
-                padding: 10px 12px;
-                background-color: rgba(124, 77, 255, 0.08);
-                border: 1px solid rgba(124, 77, 255, 0.25);
-                border-radius: var(--radius-md, 10px);
-                font-family: var(--font-ui);
+                gap: var(--space-xs);
+                padding: var(--space-xs) var(--space-sm);
+                background-color: var(--status-info-bg);
+                border: 1px solid var(--status-info-border);
+                border-radius: var(--radius-md);
                 font-size: 12px;
-                color: var(--muted, #9d97b8);
-                line-height: 1.4;
+                color: var(--status-info);
+                line-height: var(--line-height-prose);
             }
 
             .info-icon {
-                color: #a855f7;
+                color: var(--status-info);
                 flex-shrink: 0;
-                margin-top: 1px;
+                margin-top: 2px;
             }
 
             .success-banner {
-                background-color: rgba(16, 185, 129, 0.1);
-                border: 1px solid rgba(16, 185, 129, 0.35);
-                border-radius: var(--radius-lg, 14px);
-                padding: 16px 20px;
+                background-color: var(--status-profit-bg);
+                border: 1px solid var(--status-profit-border);
+                border-radius: var(--radius-lg);
+                padding: var(--space-md) var(--space-lg);
                 display: flex;
                 flex-direction: column;
-                gap: 10px;
+                gap: var(--space-xs);
             }
 
             .success-header {
-                display: flex;
-                align-items: center;
-                gap: 8px;
+                gap: var(--space-xs);
             }
 
             .success-icon {
-                color: var(--outcome-yes, #10b981);
+                color: var(--status-profit);
             }
 
             .success-title {
-                font-family: var(--font-ui);
                 font-size: 14px;
                 font-weight: 700;
-                color: var(--outcome-yes, #10b981);
+                color: var(--status-profit);
             }
 
             .success-text {
-                font-family: var(--font-ui);
                 font-size: 13px;
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
                 margin: 0;
             }
 
             .view-market-link {
-                display: inline-flex;
-                align-items: center;
-                gap: 6px;
-                color: var(--accent, #00d4ff);
-                font-family: var(--font-ui);
+                gap: var(--space-xxs);
+                color: var(--link);
                 font-size: 13px;
                 font-weight: 600;
                 text-decoration: none;
             }
 
             .view-market-link:hover {
+                color: var(--link-active);
                 text-decoration: underline;
             }
 
@@ -1484,220 +1420,116 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             .outcome-select-row {
                 display: grid;
                 grid-template-columns: 1fr 1fr;
-                gap: 12px;
+                gap: var(--space-sm);
             }
 
             .outcome-glyph {
-                margin-right: 4px;
+                margin-right: var(--space-xxs);
             }
 
             .resolution-summary-box {
-                margin-top: 16px;
-                padding: 16px;
-                background-color: rgba(16, 185, 129, 0.08);
-                border: 1px solid rgba(16, 185, 129, 0.3);
-                border-radius: var(--radius-md, 10px);
+                margin-top: var(--space-md);
+                padding: var(--space-md);
+                background-color: var(--status-profit-bg);
+                border: 1px solid var(--status-profit-border);
+                border-radius: var(--radius-md);
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
+                gap: var(--space-sm);
             }
 
             .res-summary-title {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-family: var(--font-ui);
+                gap: var(--space-xs);
                 font-size: 14px;
                 font-weight: 700;
-                color: var(--outcome-yes, #10b981);
+                color: var(--status-profit);
             }
 
             .res-stats-grid {
                 display: grid;
                 grid-template-columns: 1fr 1fr 1fr;
-                gap: 10px;
+                gap: var(--space-xs);
             }
 
             .res-stat {
                 display: flex;
                 flex-direction: column;
-                gap: 2px;
+                gap: var(--space-xxs);
             }
 
             .res-audit-section {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
-                padding-top: 12px;
-                border-top: 1px solid rgba(16, 185, 129, 0.2);
+                gap: var(--space-xs);
+                padding-top: var(--space-sm);
+                border-top: 1px solid var(--hairline);
             }
 
             .res-audit-row {
                 display: flex;
                 flex-direction: column;
-                gap: 3px;
+                gap: var(--space-xxs);
             }
 
             .audit-digest-val {
-                font-family: var(--font-mono, monospace);
+                font-family: var(--font-mono);
                 font-size: 11px;
-                color: var(--ink-secondary, #9d97b8);
+                color: var(--ink-secondary);
                 word-break: break-all;
-                background: rgba(0, 0, 0, 0.25);
-                padding: 4px 8px;
-                border-radius: var(--radius-xs, 4px);
-                border: 1px solid rgba(255, 255, 255, 0.06);
+                background-color: var(--surface-terminal);
+                padding: var(--space-xxs) var(--space-xs);
+                border-radius: var(--radius-xs);
+                border: 1px solid var(--hairline);
             }
 
-            /* Modal Backdrop & Dialog */
-            .modal-backdrop {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background-color: rgba(7, 9, 14, 0.8);
-                backdrop-filter: blur(4px);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                z-index: 1000;
-                padding: 20px;
-            }
-
-            .modal-content {
-                background-color: var(--surface-card, #111622);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-lg, 14px);
-                width: 100%;
-                max-width: 640px;
-                max-height: 90vh;
-                overflow-y: auto;
-                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
-                display: flex;
-                flex-direction: column;
-            }
-
-            .modal-content-sm {
-                max-width: 480px;
-            }
-
-            .modal-header {
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                padding: 20px 24px;
-                border-bottom: 1px solid var(--hairline, #1e2638);
-            }
-
-            .modal-title-row {
-                display: flex;
-                align-items: center;
-                gap: 10px;
-            }
-
-            .modal-icon {
-                color: var(--primary-border, #a855f7);
-            }
-
-            .modal-icon.text-destructive {
-                color: var(--outcome-no, #fb7185);
-            }
-
-            .modal-title {
-                font-family: var(--font-ui);
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                margin: 0;
-            }
-
-            .modal-close-btn {
-                background: none;
-                border: none;
-                color: var(--muted, #9d97b8);
-                cursor: pointer;
-                padding: 6px;
-                border-radius: var(--radius-sm, 4px);
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                min-width: var(--touch-target-min, 40px);
-                min-height: var(--touch-target-min, 40px);
-                transition: color 0.15s ease;
-            }
-
-            .modal-close-btn:hover {
-                color: var(--ink, #f8f7ff);
-                background-color: rgba(255, 255, 255, 0.05);
-            }
-
-            .modal-body {
-                padding: 20px 24px;
-            }
-
-            .modal-footer {
-                display: flex;
-                align-items: center;
+            /* Dialog actions and Delete Body */
+            .dialog-actions {
                 justify-content: flex-end;
-                gap: 12px;
-                padding: 16px 24px;
-                border-top: 1px solid var(--hairline, #1e2638);
-                background-color: rgba(0, 0, 0, 0.2);
+                gap: var(--space-xs);
+                margin-top: var(--space-md);
             }
 
-            /* Delete Modal Details */
             .delete-body {
                 display: flex;
                 flex-direction: column;
-                gap: 16px;
+                gap: var(--space-md);
             }
 
             .delete-warning-text {
-                font-family: var(--font-ui);
                 font-size: 14px;
-                color: var(--ink, #f8f7ff);
+                color: var(--ink);
                 margin: 0;
             }
 
             .delete-market-preview {
                 display: flex;
                 flex-direction: column;
-                gap: 4px;
-                padding: 12px 14px;
-                background-color: var(--canvas, #07090e);
-                border: 1px solid var(--hairline, #1e2638);
-                border-radius: var(--radius-md, 10px);
+                gap: var(--space-xxs);
+                padding: var(--space-xs) var(--space-sm);
+                background-color: var(--canvas-subtle);
+                border: 1px solid var(--hairline);
+                border-radius: var(--radius-md);
             }
 
             .preview-label {
-                font-family: var(--font-ui);
                 font-size: 11px;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
-                color: var(--muted, #9d97b8);
-            }
-
-            .preview-title {
-                font-family: var(--font-ui);
-                font-size: 14px;
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
+                color: var(--muted);
             }
 
             .danger-box {
-                padding: 12px 14px;
-                background-color: rgba(251, 113, 133, 0.08);
-                border: 1px solid rgba(251, 113, 133, 0.3);
-                border-radius: var(--radius-md, 10px);
+                padding: var(--space-xs) var(--space-sm);
+                background-color: var(--status-loss-bg);
+                border: 1px solid var(--status-loss-border);
+                border-radius: var(--radius-md);
             }
 
             .danger-text {
-                font-family: var(--font-ui);
                 font-size: 12px;
-                color: var(--outcome-no, #fb7185);
+                color: var(--status-loss);
                 margin: 0;
-                line-height: 1.4;
+                line-height: var(--line-height-prose);
             }
         `
     ]
