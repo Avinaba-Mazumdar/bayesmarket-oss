@@ -15,6 +15,7 @@ import (
 	"github.com/bayesmarket/bayesmarket/internal/database"
 	"github.com/bayesmarket/bayesmarket/internal/transport/rest"
 	"github.com/bayesmarket/bayesmarket/internal/transport/ws"
+	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,6 +26,10 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("[FATAL] Configuration error: %v\n", err)
+	}
+
+	if cfg != nil && !cfg.IsDevOrLocal() {
+		gin.SetMode(gin.ReleaseMode)
 	}
 
 	port := os.Getenv("PORT")

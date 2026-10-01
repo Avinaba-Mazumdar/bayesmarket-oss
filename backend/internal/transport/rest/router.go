@@ -77,6 +77,34 @@ func maxBodySizeMiddleware(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
+// securityHeadersMiddleware enforces modern OWASP HTTP security headers across all responses.
+func securityHeadersMiddleware(isDevOrLocal bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Prevent framing to neutralize clickjacking (OWASP A05)
+		c.Header("X-Frame-Options", "DENY")
+		// Disable MIME type sniffing (OWASP A05)
+		c.Header("X-Content-Type-Options", "nosniff")
+		// Disable buggy legacy XSS filter to prevent side-channel leaks
+		c.Header("X-XSS-Protection", "0")
+		// Restrict referrer leakage on external navigations
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Disable unused client browser hardware/sensor APIs
+		c.Header("Permissions-Policy", "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()")
+		// Restrict framing and script execution within API contexts
+		c.Header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none';")
+		// Isolate cross-origin window contexts
+		c.Header("Cross-Origin-Opener-Policy", "same-origin")
+		c.Header("Cross-Origin-Resource-Policy", "cross-origin")
+
+		// Enforce HTTP Strict Transport Security (HSTS) in non-dev environments
+		if !isDevOrLocal {
+			c.Header("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
+
+		c.Next()
+	}
+}
+
 func parseAllowedOrigins(corsOrigin string) []string {
 	var origins []string
 	for _, o := range strings.Split(corsOrigin, ",") {
@@ -88,23 +116,37 @@ func parseAllowedOrigins(corsOrigin string) []string {
 	return origins
 }
 
-func isOriginAllowed(origin string, allowedOrigins []string, isDev bool) bool {
+// checkCORSOrigin safely evaluates whether an incoming Origin is permitted, and whether credentials may be exposed.
+// Wildcards ('*') are NEVER paired with Access-Control-Allow-Credentials: true to prevent credential leakage.
+func checkCORSOrigin(origin string, allowedOrigins []string, isDev bool) (allowed bool, allowCredentials bool, headerOrigin string) {
 	if origin == "" {
-		return false
+		return false, false, ""
 	}
+	lower := strings.ToLower(origin)
+
+	// 1. Explicit whitelisted origins: allow credentials
 	for _, allowed := range allowedOrigins {
-		if allowed == "*" || strings.EqualFold(origin, allowed) {
-			return true
+		if allowed != "*" && strings.EqualFold(origin, allowed) {
+			return true, true, origin
 		}
 	}
+
+	// 2. Development localhost / loopback interfaces: allow credentials
 	if isDev {
-		lower := strings.ToLower(origin)
 		if strings.HasPrefix(lower, "http://localhost:") || lower == "http://localhost" ||
 			strings.HasPrefix(lower, "http://127.0.0.1:") || lower == "http://127.0.0.1" {
-			return true
+			return true, true, origin
 		}
 	}
-	return false
+
+	// 3. Explicit wildcard '*' allowed: permit cross-origin access but STRICTLY DISALLOW credentials
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" {
+			return true, false, "*"
+		}
+	}
+
+	return false, false, ""
 }
 
 // SetupRouter constructs and configures the Gin HTTP engine with all REST routes, WebSocket endpoints, and middleware.
@@ -128,6 +170,10 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		adminToken = cfg.AdminToken
 	}
 
+	if !isDevOrLocal {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
 	if jwtSecret == "" && isDevOrLocal {
 		jwtSecret = "bayesmarket-development-hmac-sha256-default-secret-key-32b"
 	}
@@ -141,20 +187,24 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		_ = router.SetTrustedProxies(nil)
 	}
 	router.Use(
+		securityHeadersMiddleware(isDevOrLocal),
 		redactedLogger(),
 		gin.Recovery(),
 		gzipMiddleware(),
 		maxBodySizeMiddleware(1<<20), // 1MB payload ceiling
 	)
 
-	// Strict CORS Middleware
+	// Strict OWASP-Compliant CORS Middleware
 	allowedOrigins := parseAllowedOrigins(corsOrigin)
 	router.Use(func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
 
-		if origin != "" && isOriginAllowed(origin, allowedOrigins, isDevOrLocal) {
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Credentials", "true")
+		allowed, allowCreds, headerOrigin := checkCORSOrigin(origin, allowedOrigins, isDevOrLocal)
+		if allowed {
+			c.Header("Access-Control-Allow-Origin", headerOrigin)
+			if allowCreds {
+				c.Header("Access-Control-Allow-Credentials", "true")
+			}
 			c.Header("Vary", "Origin")
 		}
 
@@ -163,7 +213,7 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 		c.Header("Access-Control-Expose-Headers", "Retry-After, Content-Length")
 
 		if c.Request.Method == "OPTIONS" {
-			if origin != "" && !isOriginAllowed(origin, allowedOrigins, isDevOrLocal) {
+			if origin != "" && !allowed {
 				c.AbortWithStatus(http.StatusForbidden)
 				return
 			}
