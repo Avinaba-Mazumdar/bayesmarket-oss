@@ -22,6 +22,7 @@ export class AuthStore {
     readonly cashBalance = signal<string>(this.getInitialBalance());
 
     readonly isGuest = computed(() => this.user()?.is_guest ?? false);
+    readonly isAdmin = computed(() => this.user()?.is_admin ?? false);
     readonly isAuthenticated = computed(() => !!this.token() && !!this.user());
     readonly authProvider = computed(() => this.user()?.auth_provider || 'none');
     readonly userName = computed(() => this.user()?.name || (this.isGuest() ? 'Guest Trader' : this.isAuthenticated() ? 'Verified Trader' : 'Visitor'));

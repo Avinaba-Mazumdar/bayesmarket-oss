@@ -95,10 +95,48 @@ func TestGuestAuthEndpoint(t *testing.T) {
 	}
 }
 
+func ensureTestMarket(t *testing.T, pool *pgxpool.Pool, slug, title string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var id string
+	err := pool.QueryRow(ctx, "SELECT id::text FROM markets WHERE slug = $1", slug).Scan(&id)
+	if err == nil {
+		return id
+	}
+
+	resDate := time.Now().Add(365 * 24 * time.Hour).UTC()
+	err = pool.QueryRow(ctx, `
+		INSERT INTO markets (slug, title, description, category, resolution_source, resolution_date, status)
+		VALUES ($1, $2, 'Test description', 'crypto', 'https://example.com', $3, 'active')
+		RETURNING id::text;
+	`, slug, title, resDate).Scan(&id)
+	if err != nil {
+		t.Fatalf("Failed to insert test market: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+		INSERT INTO liquidity_pools (market_id, reserve_yes, reserve_no, collateral_reserve, k_invariant, total_volume_usdc, lock_version)
+		VALUES ($1::uuid, 10000, 10000, 20000, 100000000, 0, 0)
+		ON CONFLICT (market_id) DO NOTHING;
+	`, id)
+	if err != nil {
+		t.Fatalf("Failed to insert test liquidity pool: %v", err)
+	}
+	return id
+}
+
 // 3. Task 4.3: Market Discovery Endpoints
 func TestMarketDiscoveryEndpoints(t *testing.T) {
 	pool, _, router := getTestEnv(t)
 	defer pool.Close()
+
+	// Ensure test markets exist for discovery
+	ensureTestMarket(t, pool, "test-market-discovery-1", "Test Discovery Market 1")
+	ensureTestMarket(t, pool, "test-market-discovery-2", "Test Discovery Market 2")
+	ensureTestMarket(t, pool, "test-market-discovery-3", "Test Discovery Market 3")
+	ensureTestMarket(t, pool, "test-market-discovery-4", "Test Discovery Market 4")
 
 	// GET /api/v1/markets
 	w := httptest.NewRecorder()
@@ -164,6 +202,8 @@ func TestMarketDiscoveryEndpoints(t *testing.T) {
 func TestMarketQuoteEndpoint(t *testing.T) {
 	pool, _, router := getTestEnv(t)
 	defer pool.Close()
+
+	ensureTestMarket(t, pool, "will-bitcoin-hit-125k-in-2026", "Will Bitcoin hit $125k in 2026?")
 
 	// 1. Quote a BUY of 100 USDC on YES for Bitcoin market
 	payloadBuy := map[string]string{

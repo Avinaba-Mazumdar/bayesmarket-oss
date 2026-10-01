@@ -88,6 +88,7 @@ type UserResponse struct {
 	Name         *string `json:"name,omitempty"`
 	AvatarURL    *string `json:"avatar_url,omitempty"`
 	IsGuest      bool    `json:"is_guest"`
+	IsAdmin      bool    `json:"is_admin"`
 	AuthProvider string  `json:"auth_provider"`
 	CashBalance  string  `json:"cash_balance"`
 	CreatedAt    string  `json:"created_at"`
@@ -194,7 +195,7 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		}
 	}
 
-	tokenString, err := h.generateJWT(userID.String(), isGuest, "", "", "", authProvider)
+	tokenString, err := h.generateJWT(userID.String(), isGuest, false, "", "", "", authProvider)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
@@ -208,6 +209,7 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		User: UserResponse{
 			ID:           userID.String(),
 			IsGuest:      isGuest,
+			IsAdmin:      false,
 			AuthProvider: authProvider,
 			CashBalance:  cashBalance.StringFixed(8),
 			CreatedAt:    createdAt.Format(time.RFC3339),
@@ -323,7 +325,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := h.generateJWT(user.ID, false, email, name, avatarURL, "google")
+	tokenString, err := h.generateJWT(user.ID, false, user.IsAdmin, email, name, avatarURL, "google")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
@@ -488,7 +490,7 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, resp)
 			return
 		}
-		tokenString, _ := h.generateJWT(user.ID, false, "oauth.trader@bayesmarket.com", "OAuth Trader", "", "google")
+		tokenString, _ := h.generateJWT(user.ID, false, user.IsAdmin, "oauth.trader@bayesmarket.com", "OAuth Trader", "", "google")
 		c.JSON(http.StatusOK, AuthResponse{Token: tokenString, User: *user})
 		return
 	}
@@ -554,7 +556,7 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := h.generateJWT(user.ID, false, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture, "google")
+	tokenString, err := h.generateJWT(user.ID, false, user.IsAdmin, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture, "google")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
@@ -588,6 +590,7 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 	var (
 		id           uuid.UUID
 		isGuest      bool
+		isAdmin      bool
 		authProvider string
 		email        *string
 		name         *string
@@ -603,6 +606,7 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 			Name:         &nameStr,
 			AuthProvider: "guest",
 			IsGuest:      true,
+			IsAdmin:      false,
 			CashBalance:  "1000.00000000",
 			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		})
@@ -610,12 +614,12 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 	}
 
 	query := `
-		SELECT id, is_guest, auth_provider, email, name, avatar_url, cash_balance, created_at
+		SELECT id, is_guest, auth_provider, email, name, avatar_url, cash_balance, created_at, is_admin
 		FROM users
 		WHERE id = $1;
 	`
 	err := h.pool.QueryRow(ctx, query, userID).Scan(
-		&id, &isGuest, &authProvider, &email, &name, &avatarURL, &cashBalance, &createdAt,
+		&id, &isGuest, &authProvider, &email, &name, &avatarURL, &cashBalance, &createdAt, &isAdmin,
 	)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -638,6 +642,7 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 		Name:         name,
 		AvatarURL:    avatarURL,
 		IsGuest:      isGuest,
+		IsAdmin:      isAdmin,
 		AuthProvider: authProvider,
 		CashBalance:  cashBalance.StringFixed(8),
 		CreatedAt:    createdAt.Format(time.RFC3339),
@@ -839,6 +844,7 @@ func (h *AuthHandler) upsertGoogleUser(
 	var (
 		existingID          uuid.UUID
 		existingIsGuest     bool
+		existingIsAdmin     bool
 		existingProvider    string
 		existingCashBalance decimal.Decimal
 		existingCreatedAt   time.Time
@@ -855,6 +861,7 @@ func (h *AuthHandler) upsertGoogleUser(
 			Name:         &name,
 			AvatarURL:    &avatarURL,
 			IsGuest:      false,
+			IsAdmin:      false,
 			AuthProvider: "google",
 			CashBalance:  "1000.00000000",
 			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -862,13 +869,13 @@ func (h *AuthHandler) upsertGoogleUser(
 	}
 
 	queryFind := `
-		SELECT id, is_guest, auth_provider, email, name, avatar_url, cash_balance, created_at
+		SELECT id, is_guest, auth_provider, email, name, avatar_url, cash_balance, created_at, is_admin
 		FROM users
 		WHERE google_id = $1
 		LIMIT 1;
 	`
 	err := h.pool.QueryRow(ctx, queryFind, googleID).Scan(
-		&existingID, &existingIsGuest, &existingProvider, &existingEmail, &existingName, &existingAvatar, &existingCashBalance, &existingCreatedAt,
+		&existingID, &existingIsGuest, &existingProvider, &existingEmail, &existingName, &existingAvatar, &existingCashBalance, &existingCreatedAt, &existingIsAdmin,
 	)
 
 	if err == nil {
@@ -890,6 +897,7 @@ func (h *AuthHandler) upsertGoogleUser(
 			Name:         existingName,
 			AvatarURL:    existingAvatar,
 			IsGuest:      false,
+			IsAdmin:      existingIsAdmin,
 			AuthProvider: existingProvider,
 			CashBalance:  existingCashBalance.StringFixed(8),
 			CreatedAt:    existingCreatedAt.Format(time.RFC3339),
@@ -921,17 +929,18 @@ func (h *AuthHandler) upsertGoogleUser(
 			    avatar_url = $4,
 			    last_active = NOW()
 			WHERE id = $5 AND is_guest = true
-			RETURNING id, is_guest, auth_provider, cash_balance, created_at;
+			RETURNING id, is_guest, auth_provider, cash_balance, created_at, is_admin;
 		`
 		var (
 			upgradedID       uuid.UUID
 			upgradedIsGuest  bool
+			upgradedIsAdmin  bool
 			upgradedProvider string
 			upgradedBalance  decimal.Decimal
 			upgradedCreated  time.Time
 		)
 		uErr := h.pool.QueryRow(ctx, upgradeQuery, googleID, email, name, avatarURL, guestID).Scan(
-			&upgradedID, &upgradedIsGuest, &upgradedProvider, &upgradedBalance, &upgradedCreated,
+			&upgradedID, &upgradedIsGuest, &upgradedProvider, &upgradedBalance, &upgradedCreated, &upgradedIsAdmin,
 		)
 		if uErr == nil {
 			return &UserResponse{
@@ -940,6 +949,7 @@ func (h *AuthHandler) upsertGoogleUser(
 				Name:         &name,
 				AvatarURL:    &avatarURL,
 				IsGuest:      false,
+				IsAdmin:      upgradedIsAdmin,
 				AuthProvider: upgradedProvider,
 				CashBalance:  upgradedBalance.StringFixed(8),
 				CreatedAt:    upgradedCreated.Format(time.RFC3339),
@@ -964,17 +974,18 @@ func (h *AuthHandler) upsertGoogleUser(
 	insertQuery := `
 		INSERT INTO users (is_guest, auth_provider, google_id, email, name, avatar_url, cash_balance, ip_address)
 		VALUES (false, 'google', $1, $2, $3, $4, $5, $6)
-		RETURNING id, is_guest, auth_provider, cash_balance, created_at;
+		RETURNING id, is_guest, auth_provider, cash_balance, created_at, is_admin;
 	`
 	var (
 		newID       uuid.UUID
 		newIsGuest  bool
+		newIsAdmin  bool
 		newProvider string
 		newBalance  decimal.Decimal
 		newCreated  time.Time
 	)
 	err = h.pool.QueryRow(ctx, insertQuery, googleID, email, name, avatarURL, initialBalance, clientIP).Scan(
-		&newID, &newIsGuest, &newProvider, &newBalance, &newCreated,
+		&newID, &newIsGuest, &newProvider, &newBalance, &newCreated, &newIsAdmin,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to insert new registered user: %w", err)
@@ -986,6 +997,7 @@ func (h *AuthHandler) upsertGoogleUser(
 		Name:         &name,
 		AvatarURL:    &avatarURL,
 		IsGuest:      false,
+		IsAdmin:      newIsAdmin,
 		AuthProvider: newProvider,
 		CashBalance:  newBalance.StringFixed(8),
 		CreatedAt:    newCreated.Format(time.RFC3339),
@@ -993,10 +1005,11 @@ func (h *AuthHandler) upsertGoogleUser(
 }
 
 // generateJWT signs an HMAC-SHA256 JWT containing authenticated user claims.
-func (h *AuthHandler) generateJWT(userID string, isGuest bool, email string, name string, avatarURL string, provider string) (string, error) {
+func (h *AuthHandler) generateJWT(userID string, isGuest bool, isAdmin bool, email string, name string, avatarURL string, provider string) (string, error) {
 	claims := middleware.AuthClaims{
 		UserID:       userID,
 		IsGuest:      isGuest,
+		IsAdmin:      isAdmin,
 		Email:        email,
 		Name:         name,
 		AvatarURL:    avatarURL,

@@ -9,6 +9,8 @@ import {
     CashOutResponse,
     CreateMarketRequest,
     CreateMarketResponse,
+    DeleteMarketResponse,
+    EditMarketRequest,
     FaucetResponse,
     GoogleCallbackRequest,
     GoogleVerifyRequest,
@@ -159,19 +161,35 @@ export class ApiService {
     }
 
     /**
-     * Verify whether an admin authorization token is valid.
+     * Verify whether an admin authorization token or admin user session is valid.
      */
-    verifyAdmin(adminToken: string): Observable<{ status: string; message: string }> {
-        const headers = this.buildHeaders(adminToken);
+    verifyAdmin(token?: string | null): Observable<{ status: string; message: string }> {
+        const headers = this.buildHeaders(token);
         return this.http.get<{ status: string; message: string }>(`${this.baseUrl}/admin/verify`, { headers });
     }
 
     /**
      * Create a new prediction market with calibrated CPMM liquidity reserves.
      */
-    createMarket(request: CreateMarketRequest, adminToken: string): Observable<CreateMarketResponse> {
-        const headers = this.buildHeaders(adminToken);
+    createMarket(request: CreateMarketRequest, token?: string | null): Observable<CreateMarketResponse> {
+        const headers = this.buildHeaders(token);
         return this.http.post<CreateMarketResponse>(`${this.baseUrl}/admin/markets`, request, { headers });
+    }
+
+    /**
+     * Administratively edit an existing prediction market.
+     */
+    editMarket(marketId: string, request: EditMarketRequest, token?: string | null): Observable<Market> {
+        const headers = this.buildHeaders(token);
+        return this.http.put<Market>(`${this.baseUrl}/admin/markets/${encodeURIComponent(marketId)}`, request, { headers });
+    }
+
+    /**
+     * Administratively delete a prediction market and its dependent records.
+     */
+    deleteMarket(marketId: string, token?: string | null): Observable<DeleteMarketResponse> {
+        const headers = this.buildHeaders(token);
+        return this.http.delete<DeleteMarketResponse>(`${this.baseUrl}/admin/markets/${encodeURIComponent(marketId)}`, { headers });
     }
 
     /**

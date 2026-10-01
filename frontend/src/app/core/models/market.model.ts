@@ -140,12 +140,30 @@ export interface ResolveMarketResponse {
     resolved_at: string;
 }
 
+export interface EditMarketRequest {
+    title?: string;
+    description?: string;
+    category?: string;
+    resolution_source?: string;
+    resolution_date?: string;
+    image_url?: string;
+    status?: 'active' | 'closed' | 'resolved' | 'suspended';
+}
+
+export interface DeleteMarketResponse {
+    status: string;
+    market_id: string;
+    title?: string;
+    message: string;
+}
+
 export interface UserProfile {
     id: string;
     email?: string | null;
     name?: string | null;
     avatar_url?: string | null;
     is_guest: boolean;
+    is_admin?: boolean;
     auth_provider: 'guest' | 'google';
     cash_balance: string;
     created_at: string;

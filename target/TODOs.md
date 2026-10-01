@@ -66,22 +66,21 @@ Implement the production PostgreSQL database schema, automated migration runner,
     - Implement connection pool factory in `backend/internal/database/db.go` with configurable min/max connections, idle timeouts, and health ping telemetry.
     - Implement a migration runner utility executing pending SQL migration scripts on startup.
 
-- [x] **Task 2.3: Seed Data Generator for Initial Prediction Markets**
-    - Implement seed loader in `backend/internal/database/seed.go` inserting real-time trending questions across Macro, Crypto, AI & Tech, and Science:
-        - **Macro**: _"Will the US Federal Reserve cut interest rates at the next FOMC meeting?"_ (84% YES: $R_{\text{YES}}=3,200$, $R_{\text{NO}}=16,800$, $k=53,760,000$, $C=20,000$ USDC)
-        - **Crypto**: _"Will Bitcoin hit $125,000 before December 31, 2026?"_ (45% YES: $R_{\text{YES}}=11,000$, $R_{\text{NO}}=9,000$, $k=99,000,000$, $C=20,000$ USDC)
-        - **AI & Tech**: _"Will OpenAI release GPT-5 before December 31, 2026?"_ (40% YES: $R_{\text{YES}}=12,000$, $R_{\text{NO}}=8,000$, $k=96,000,000$, $C=20,000$ USDC)
-        - **Science**: _"Will SpaceX land an uncrewed Starship on Mars before 2028?"_ (22% YES: $R_{\text{YES}}=15,600$, $R_{\text{NO}}=4,400$, $k=68,640,000$, $C=20,000$ USDC)
-    - Seed collateral-backed complete-set pools with virtual reserves calibrated to exact Polymarket market probability weights.
+- [x] **Task 2.3: Admin-Driven Prediction Market Lifecycle (Zero Pre-Fed Markets)**
+    - Removed all static pre-fed demo markets from database, code, and tests.
+    - Provisioned dynamic admin market creation (`POST /api/v1/admin/markets`), editing (`PUT /api/v1/admin/markets/:id`), deletion (`DELETE /api/v1/admin/markets/:id`), and settlement (`POST /api/v1/admin/markets/:id/resolve`).
+    - Enforced strict Neon DB-only admin designation (`UPDATE users SET is_admin = true WHERE email = '...';`).
+    - Protected AMM constant-product invariants ($k = R_{\text{YES}} \times R_{\text{NO}}$) and complete-set collateral backing during dynamic provisioning.
 
 - [x] **Task 2.4: Schema Constraint & Migration Unit Tests**
     - Write unit tests in `backend/internal/database/db_test.go` verifying that negative balances and zero reserves trigger database check constraint errors.
 
 ### 🔍 User Verification Task (Phase 2)
 
-1. Run the database migration and seeder: `cd backend && go run cmd/api/main.go --seed`.
+1. Run the database migration: `cd backend && go run cmd/api/main.go -migrate`.
 2. Open the **Neon SQL Editor** at `console.neon.tech` (or desktop client TablePlus/DBeaver).
-3. Query `SELECT m.id, m.title, p.reserve_yes, p.reserve_no, p.collateral_reserve, m.status FROM markets m JOIN liquidity_pools p ON p.market_id = m.id;` and verify all 4 initial prediction markets exist with calibrated reserves and collateral.
+3. To grant admin access to a trader account, run `UPDATE users SET is_admin = true WHERE email = 'YOUR_EMAIL';`.
+4. Log into the web UI as the admin user and provision, edit, or delete prediction markets dynamically via the Admin Console.
 
 ---
 

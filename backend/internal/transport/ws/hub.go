@@ -218,3 +218,27 @@ func (h *Hub) BroadcastMarketResolved(msg MarketResolvedMessage) {
 	}
 	h.Broadcast(msg.MarketID, data)
 }
+
+// BroadcastMarketUpdated formats and broadcasts a MARKET_UPDATED telemetry frame.
+func (h *Hub) BroadcastMarketUpdated(msg MarketUpdatedMessage) {
+	msg.Type = MessageTypeMarketUpdated
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal MarketUpdatedMessage: %v", err)
+		return
+	}
+	h.Broadcast(msg.MarketID, data)
+	h.Broadcast("", data)
+}
+
+// BroadcastMarketDeleted formats and broadcasts a MARKET_DELETED telemetry frame.
+func (h *Hub) BroadcastMarketDeleted(msg MarketDeletedMessage) {
+	msg.Type = MessageTypeMarketDeleted
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[ERROR] Failed to marshal MarketDeletedMessage: %v", err)
+		return
+	}
+	h.Broadcast(msg.MarketID, data)
+	h.Broadcast("", data)
+}

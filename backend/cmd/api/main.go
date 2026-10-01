@@ -19,7 +19,6 @@ import (
 )
 
 func main() {
-	seedOnly := flag.Bool("seed", false, "Run migrations and seed initial markets, then exit")
 	migrateOnly := flag.Bool("migrate", false, "Run pending database migrations, then exit")
 	flag.Parse()
 
@@ -46,10 +45,10 @@ func main() {
 		}
 	}
 
-	// 1. Handle dedicated CLI tasks (-migrate and -seed flags)
-	if *migrateOnly || *seedOnly {
+	// 1. Handle dedicated CLI tasks (-migrate flag)
+	if *migrateOnly {
 		if migrationURL == "" {
-			log.Fatal("[FATAL] Cannot execute seed/migrate: no valid MIGRATION_DATABASE_URL or DATABASE_URL configured.")
+			log.Fatal("[FATAL] Cannot execute migrate: no valid MIGRATION_DATABASE_URL or DATABASE_URL configured.")
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -57,22 +56,13 @@ func main() {
 
 		migPool, err := database.NewPool(ctx, migrationURL)
 		if err != nil {
-			log.Fatalf("[FATAL] Failed to connect for migration/seeding: %v\n", err)
+			log.Fatalf("[FATAL] Failed to connect for migration: %v\n", err)
 		}
 		defer migPool.Close()
 
 		log.Println("[INFO] Checking and applying database migrations...")
 		if err := database.RunMigrations(ctx, migPool); err != nil {
 			log.Fatalf("[FATAL] Database migration failed: %v\n", err)
-		}
-
-		if *seedOnly {
-			log.Println("[INFO] Seeding initial prediction markets...")
-			if err := database.SeedInitialMarkets(ctx, migPool); err != nil {
-				log.Fatalf("[FATAL] Seeding failed: %v\n", err)
-			}
-			log.Println("[INFO] Database seeded successfully.")
-			return
 		}
 
 		log.Println("[INFO] Migrations completed successfully.")
@@ -118,18 +108,6 @@ func main() {
 				}
 			} else if !cfg.AutoMigrate {
 				log.Println("[INFO] Auto-migrations disabled (AUTO_MIGRATE=false). Operating with runtime database user permissions.")
-			}
-
-			// Check if markets need seeding (auto-seed if empty or requested via env)
-			var marketCount int
-			_ = dbPool.QueryRow(ctx, "SELECT COUNT(*) FROM markets").Scan(&marketCount)
-			if (marketCount == 0 && os.Getenv("AUTO_SEED") != "false") || os.Getenv("AUTO_SEED") == "true" {
-				log.Println("[INFO] Auto-seeding initial prediction markets...")
-				if err := database.SeedInitialMarkets(ctx, dbPool); err != nil {
-					log.Printf("[WARN] Auto-seeding warning: %v\n", err)
-				} else {
-					log.Println("[INFO] Initial prediction markets ready.")
-				}
 			}
 		}
 	} else {

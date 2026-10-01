@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"log"
@@ -11,12 +12,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/time/rate"
 )
 
 const (
 	CtxUserIDKey       = "userID"
 	CtxIsGuestKey      = "isGuest"
+	CtxIsAdminKey      = "isAdmin"
 	CtxUserEmailKey    = "userEmail"
 	CtxUserNameKey     = "userName"
 	CtxUserAvatarKey   = "userAvatar"
@@ -28,6 +31,7 @@ const (
 type AuthClaims struct {
 	UserID       string `json:"user_id"`
 	IsGuest      bool   `json:"is_guest"`
+	IsAdmin      bool   `json:"is_admin"`
 	Email        string `json:"email,omitempty"`
 	Name         string `json:"name,omitempty"`
 	AvatarURL    string `json:"avatar_url,omitempty"`
@@ -90,6 +94,7 @@ func RequireAuth(jwtSecret string) gin.HandlerFunc {
 
 		c.Set(CtxUserIDKey, parsedID)
 		c.Set(CtxIsGuestKey, claims.IsGuest)
+		c.Set(CtxIsAdminKey, claims.IsAdmin)
 		c.Set(CtxUserEmailKey, claims.Email)
 		c.Set(CtxUserNameKey, claims.Name)
 		c.Set(CtxUserAvatarKey, claims.AvatarURL)
@@ -130,6 +135,7 @@ func OptionalAuth(jwtSecret string) gin.HandlerFunc {
 			if parsedID, err := uuid.Parse(claims.UserID); err == nil {
 				c.Set(CtxUserIDKey, parsedID)
 				c.Set(CtxIsGuestKey, claims.IsGuest)
+				c.Set(CtxIsAdminKey, claims.IsAdmin)
 				c.Set(CtxUserEmailKey, claims.Email)
 				c.Set(CtxUserNameKey, claims.Name)
 				c.Set(CtxUserAvatarKey, claims.AvatarURL)
@@ -152,6 +158,16 @@ func GetUserID(c *gin.Context) (uuid.UUID, bool) {
 	return id, ok
 }
 
+// GetIsAdmin retrieves whether the authenticated user has admin privileges.
+func GetIsAdmin(c *gin.Context) bool {
+	val, exists := c.Get(CtxIsAdminKey)
+	if !exists {
+		return false
+	}
+	isAdmin, ok := val.(bool)
+	return ok && isAdmin
+}
+
 // GetClaims retrieves the full AuthClaims payload from request context.
 func GetClaims(c *gin.Context) (*AuthClaims, bool) {
 	val, exists := c.Get(CtxAuthClaimsKey)
@@ -171,8 +187,16 @@ func SetAdminFailureLimiterDisabled(disabled bool) {
 }
 
 // RequireAdminAuth validates that the request contains an authorized administrative credential.
-// It accepts either a static admin token (configured via ADMIN_TOKEN) or a valid non-guest administrative JWT.
-func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
+// It accepts either:
+// 1. A static admin token (configured via ADMIN_TOKEN), OR
+// 2. An authenticated user Bearer JWT where is_admin is true in Neon DB.
+func RequireAdminAuth(adminToken string, jwtSecret string, poolOpt ...*pgxpool.Pool) gin.HandlerFunc {
+	var pool *pgxpool.Pool
+	if len(poolOpt) > 0 {
+		pool = poolOpt[0]
+	}
+	secretBytes := []byte(jwtSecret)
+
 	return func(c *gin.Context) {
 		clientIP := c.ClientIP()
 		limiter := adminFailureLimiter.getLimiter(clientIP)
@@ -213,10 +237,66 @@ func RequireAdminAuth(adminToken string, jwtSecret string) gin.HandlerFunc {
 
 		tokenString := strings.TrimSpace(parts[1])
 
-		// Direct match with configured AdminToken (constant-time comparison against timing attacks)
+		// 1. Direct match with configured AdminToken (constant-time comparison against timing attacks)
 		if adminToken != "" && subtle.ConstantTimeCompare([]byte(tokenString), []byte(adminToken)) == 1 {
+			c.Set(CtxIsAdminKey, true)
 			c.Next()
 			return
+		}
+
+		// 2. Attempt user JWT authentication
+		if len(secretBytes) > 0 {
+			claims := &AuthClaims{}
+			token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
+				if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, errors.New("unexpected signing method")
+				}
+				return secretBytes, nil
+			})
+
+			if err == nil && token.Valid {
+				parsedID, parseErr := uuid.Parse(claims.UserID)
+				if parseErr == nil {
+					isAdmin := claims.IsAdmin
+
+					// Always verify directly against Neon DB if pool is available (guarantees real-time revocation and DB-only authority)
+					if pool != nil {
+						var dbIsAdmin bool
+						ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+						defer cancel()
+						err := pool.QueryRow(ctx, "SELECT is_admin FROM users WHERE id = $1", parsedID).Scan(&dbIsAdmin)
+						if err == nil {
+							isAdmin = dbIsAdmin
+						} else {
+							isAdmin = false
+						}
+					}
+
+					if isAdmin {
+						c.Set(CtxUserIDKey, parsedID)
+						c.Set(CtxIsGuestKey, claims.IsGuest)
+						c.Set(CtxIsAdminKey, true)
+						c.Set(CtxUserEmailKey, claims.Email)
+						c.Set(CtxUserNameKey, claims.Name)
+						c.Set(CtxUserAvatarKey, claims.AvatarURL)
+						c.Set(CtxAuthProviderKey, claims.AuthProvider)
+						c.Set(CtxAuthClaimsKey, claims)
+						c.Next()
+						return
+					}
+
+					// Authenticated user exists but lacks admin privileges
+					if !disabled {
+						limiter.Allow()
+					}
+					log.Printf("[SECURITY] User %s attempted admin access without is_admin privilege from IP=%s path=%s", parsedID, clientIP, c.Request.URL.Path)
+					c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+						"error":   "forbidden",
+						"message": "Admin privileges required. Admin status can only be granted directly in Neon DB.",
+					})
+					return
+				}
+			}
 		}
 
 		// Failed authentication: consume failure rate limit and log security alert

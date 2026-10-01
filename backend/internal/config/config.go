@@ -30,10 +30,14 @@ type Config struct {
 // It searches both current directory and parent dirs for .env.
 func Load() (*Config, error) {
 	// Attempt to load from potential .env locations (current dir, parent dir, workspace root)
-	for _, envPath := range []string{".env", "../.env", "../../.env", "../../../.env", "../../../../.env", "../../../../../.env"} {
+	for _, envPath := range []string{".env", "../.env", "../../.env"} {
 		if _, err := os.Stat(envPath); err == nil {
-			_ = godotenv.Load(envPath)
-			break
+			if loadErr := godotenv.Load(envPath); loadErr != nil {
+				log.Printf("[WARN] Failed loading %s: %v", envPath, loadErr)
+			} else {
+				log.Printf("[INFO] Loaded configuration from %s", envPath)
+				break
+			}
 		}
 	}
 

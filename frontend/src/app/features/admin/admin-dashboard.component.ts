@@ -1,13 +1,27 @@
-import { ChangeDetectionStrategy, Component, computed, inject, OnInit, signal, WritableSignal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, OnInit, signal, WritableSignal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { LucideCheck, LucideShieldCheck, LucidePlus, LucideArrowRight, LucideInfo, LucideArrowUp, LucideArrowDown, LucideCheckCircle2 } from '@lucide/angular';
+import {
+    LucideCheck,
+    LucideShieldCheck,
+    LucidePlus,
+    LucideArrowRight,
+    LucideInfo,
+    LucideArrowUp,
+    LucideArrowDown,
+    LucideCheckCircle2,
+    LucidePencil,
+    LucideTrash2,
+    LucideSliders,
+    LucideX
+} from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
+import { AuthStore } from '../../state/auth.store';
 import { ToastService } from '../../shared/components/toast/toast.service';
-import { Market, CreateMarketRequest, CreateMarketResponse, ResolveMarketResponse } from '../../core/models/market.model';
+import { Market, CreateMarketRequest, CreateMarketResponse, EditMarketRequest, ResolveMarketResponse } from '../../core/models/market.model';
 import { ButtonComponent } from '../../shared/components/button/button.component';
-import { BadgeComponent } from '../../shared/components/badge/badge.component';
+import { BadgeComponent, BadgeVariant } from '../../shared/components/badge/badge.component';
 import { InputComponent } from '../../shared/components/input/input.component';
 import { LabelComponent } from '../../shared/components/label/label.component';
 import { SelectComponent, SelectOption } from '../../shared/components/select/select.component';
@@ -38,7 +52,11 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
         LucideInfo,
         LucideArrowUp,
         LucideArrowDown,
-        LucideCheckCircle2
+        LucideCheckCircle2,
+        LucidePencil,
+        LucideTrash2,
+        LucideSliders,
+        LucideX
     ],
     template: `
         <div class="admin-container" role="main">
@@ -57,13 +75,20 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                         <h1 class="admin-title">Prediction Market Operations</h1>
                     </div>
                     <p class="admin-subtitle">
-                        Provision algorithmic binary prediction markets with complete-set CPMM liquidity, or settle mature contracts via authoritative oracle
-                        proof.
+                        Administrative command center for prediction market lifecycle: create algorithmic binary contracts, edit live metadata, execute
+                        permanent deletions, or settle mature markets.
                     </p>
                 </div>
 
                 @if (isUnlocked()) {
                     <div class="header-right">
+                        @if (authStore.isAdmin()) {
+                            <div class="admin-identity-pill">
+                                <span class="identity-dot"></span>
+                                <span class="identity-role">Neon DB Admin</span>
+                                <span class="identity-email">{{ authStore.user()?.email }}</span>
+                            </div>
+                        }
                         <app-button variant="secondary" size="default" (btnClick)="lockDashboard()" ariaLabel="Lock admin console session">
                             Lock Console
                         </app-button>
@@ -71,18 +96,40 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 }
             </div>
 
-            <!-- Passkey Gatekeeper (Shown when not authenticated) -->
+            <!-- Passkey Gatekeeper (Shown when not authenticated as admin) -->
             @if (!isUnlocked()) {
                 <div class="gatekeeper-card" role="region" aria-label="Admin Authentication Gatekeeper">
                     <div class="gatekeeper-body">
                         <div class="gate-icon-circle">
                             <svg lucideShieldCheck class="gate-icon" [size]="32" aria-hidden="true"></svg>
                         </div>
-                        <h2 class="gate-title">Enter Admin Authorization Key</h2>
-                        <p class="gate-desc">Administrative operations require a valid server <code class="code-pill">ADMIN_TOKEN</code>.</p>
+                        <h2 class="gate-title">Admin Authorization Required</h2>
+
+                        <!-- Neon DB Admin Invariant Notice -->
+                        @if (authStore.isAuthenticated() && !authStore.isAdmin()) {
+                            <div class="db-admin-notice warning-box">
+                                <p class="notice-title">Admin Rights Invariant</p>
+                                <p class="notice-desc">
+                                    Logged in as <strong class="user-highlight">{{ authStore.user()?.email }}</strong
+                                    >, but this account is not an admin.
+                                </p>
+                                <p class="notice-sql-label">Setting an admin can only be done directly from Neon DB:</p>
+                                <pre class="sql-code-block"><code>UPDATE users SET is_admin = true WHERE email = '{{ authStore.user()?.email }}';</code></pre>
+                                <p class="notice-hint">Execute this query directly in the Neon SQL console, then refresh or re-login.</p>
+                            </div>
+                        } @else if (!authStore.isAuthenticated()) {
+                            <div class="db-admin-notice info-box">
+                                <p class="notice-title">Strict Database-Level Admin Assignment</p>
+                                <p class="notice-desc">
+                                    Markets can only be created, edited, and deleted by an admin. Admin permissions cannot be assigned through the web UI and
+                                    must be granted directly in Neon DB:
+                                </p>
+                                <pre class="sql-code-block"><code>UPDATE users SET is_admin = true WHERE email = 'YOUR_EMAIL';</code></pre>
+                            </div>
+                        }
 
                         <div class="gate-form">
-                            <app-label htmlFor="admin-token-input">ADMIN_TOKEN</app-label>
+                            <app-label htmlFor="admin-token-input">Or Enter ADMIN_TOKEN Passkey</app-label>
                             <app-input
                                 id="admin-token-input"
                                 type="password"
@@ -96,7 +143,7 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
 
                             @if (isDev()) {
                                 <div class="dev-hint-row">
-                                    <span class="hint-text">Local Dev: Enter ADMIN_TOKEN configured in your server .env</span>
+                                    <span class="hint-text">Local Dev: Enter ADMIN_TOKEN configured in backend .env</span>
                                 </div>
                             }
 
@@ -116,6 +163,18 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
             } @else {
                 <!-- Unlocked Workspace Tabs -->
                 <div class="workspace-tabs" role="tablist" aria-label="Admin Operations">
+                    <button
+                        type="button"
+                        role="tab"
+                        class="tab-btn"
+                        [class.active]="activeTab() === 'manage'"
+                        [attr.aria-selected]="activeTab() === 'manage'"
+                        (click)="activeTab.set('manage')"
+                    >
+                        <svg lucideSliders [size]="16" aria-hidden="true"></svg>
+                        <span>Manage Markets ({{ activeMarkets().length }})</span>
+                    </button>
+
                     <button
                         type="button"
                         role="tab"
@@ -140,6 +199,112 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                         <span>Resolve Active Market</span>
                     </button>
                 </div>
+
+                <!-- Tab 0: Manage Existing Markets (Edit / Delete) -->
+                @if (activeTab() === 'manage') {
+                    <div class="tab-pane manage-markets-pane">
+                        <div class="manage-header-row">
+                            <div>
+                                <h2 class="section-title">All Live Prediction Markets</h2>
+                                <p class="section-desc">Full administrative control: inspect status, modify parameters, or permanently purge markets.</p>
+                            </div>
+                            <div class="manage-header-actions">
+                                <app-button variant="outline" size="sm" (btnClick)="loadActiveMarkets()" ariaLabel="Refresh markets list">
+                                    Refresh List
+                                </app-button>
+                                <app-button variant="primary" size="sm" (btnClick)="activeTab.set('create')" ariaLabel="Create new market">
+                                    <svg lucidePlus [size]="14" aria-hidden="true"></svg>
+                                    <span>Create Market</span>
+                                </app-button>
+                            </div>
+                        </div>
+
+                        @if (activeMarkets().length === 0) {
+                            <div class="empty-markets-card">
+                                <div class="empty-icon-circle">
+                                    <svg lucideSliders [size]="32" aria-hidden="true"></svg>
+                                </div>
+                                <h3 class="empty-title">Zero Markets in Neon Database</h3>
+                                <p class="empty-desc">
+                                    All pre-fed markets have been purged. Use the creation form to deploy your first live prediction market.
+                                </p>
+                                <app-button variant="primary" size="default" (btnClick)="activeTab.set('create')" ariaLabel="Create first market">
+                                    <svg lucidePlus [size]="16" aria-hidden="true"></svg>
+                                    <span>Create Prediction Market</span>
+                                </app-button>
+                            </div>
+                        } @else {
+                            <div class="markets-table-container">
+                                <table class="markets-table" role="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Market Question</th>
+                                            <th>Category</th>
+                                            <th>Status</th>
+                                            <th>Resolution Date</th>
+                                            <th>Volume</th>
+                                            <th>Probability</th>
+                                            <th class="th-actions">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @for (m of activeMarkets(); track m.id) {
+                                            <tr>
+                                                <td class="td-market">
+                                                    <div class="market-cell-title">
+                                                        <a [routerLink]="'/markets/' + m.slug" class="table-market-link" target="_blank" rel="noopener">
+                                                            {{ m.title }}
+                                                        </a>
+                                                        <span class="market-cell-id mono-sub">ID: {{ m.id.slice(0, 8) }}...</span>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <app-badge variant="outline" size="sm">{{ m.category | uppercase }}</app-badge>
+                                                </td>
+                                                <td>
+                                                    <app-badge [variant]="getStatusBadgeVariant(m.status)" size="sm">
+                                                        {{ m.status | uppercase }}
+                                                    </app-badge>
+                                                </td>
+                                                <td class="tabular-nums mono-sub">
+                                                    {{ m.resolution_date | date: 'mediumDate' }}
+                                                </td>
+                                                <td class="tabular-nums mono-sub">&#36;{{ m.reserves?.total_volume_usdc || '0' }}</td>
+                                                <td class="tabular-nums prob-cell">
+                                                    <span class="prob-yes">▲ {{ m.probability_yes_pct }}</span>
+                                                    <span class="prob-sep">/</span>
+                                                    <span class="prob-no">▼ {{ m.probability_no_pct }}</span>
+                                                </td>
+                                                <td class="td-actions">
+                                                    <div class="action-buttons-group">
+                                                        <app-button
+                                                            variant="secondary"
+                                                            size="sm"
+                                                            (btnClick)="openEditModal(m)"
+                                                            ariaLabel="Edit market {{ m.title }}"
+                                                        >
+                                                            <svg lucidePencil [size]="14" aria-hidden="true"></svg>
+                                                            <span>Edit</span>
+                                                        </app-button>
+                                                        <app-button
+                                                            variant="destructive"
+                                                            size="sm"
+                                                            (btnClick)="openDeleteModal(m)"
+                                                            ariaLabel="Delete market {{ m.title }}"
+                                                        >
+                                                            <svg lucideTrash2 [size]="14" aria-hidden="true"></svg>
+                                                            <span>Delete</span>
+                                                        </app-button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                }
 
                 <!-- Tab 1: Create Market View -->
                 @if (activeTab() === 'create') {
@@ -465,6 +630,155 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                         </div>
                     </div>
                 }
+
+                <!-- Edit Market Modal Dialog -->
+                @if (editingMarket(); as em) {
+                    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="edit-dialog-title">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <div class="modal-title-row">
+                                    <svg lucidePencil class="modal-icon" [size]="20" aria-hidden="true"></svg>
+                                    <h3 id="edit-dialog-title" class="modal-title">Edit Prediction Market</h3>
+                                </div>
+                                <button type="button" class="modal-close-btn" (click)="closeEditModal()" aria-label="Close dialog">
+                                    <svg lucideX [size]="20" aria-hidden="true"></svg>
+                                </button>
+                            </div>
+
+                            <form class="modal-body market-form" (submit)="onSubmitEditMarket($event)">
+                                <div class="form-group">
+                                    <app-label htmlFor="edit-title">Market Question / Title *</app-label>
+                                    <app-input
+                                        id="edit-title"
+                                        [value]="editTitle()"
+                                        (valueChange)="onValueChange(editTitle, $event)"
+                                        ariaLabel="Edit Market Title"
+                                    />
+                                </div>
+
+                                <div class="form-row-2">
+                                    <div class="form-group">
+                                        <app-label htmlFor="edit-category">Category *</app-label>
+                                        <app-select
+                                            id="edit-category"
+                                            [options]="categoryOptions"
+                                            [value]="editCategory()"
+                                            (valueChange)="editCategory.set($event)"
+                                            ariaLabel="Edit Market Category"
+                                        />
+                                    </div>
+                                    <div class="form-group">
+                                        <app-label htmlFor="edit-status">Status *</app-label>
+                                        <app-select
+                                            id="edit-status"
+                                            [options]="statusOptions"
+                                            [value]="editStatus()"
+                                            (valueChange)="onStatusChange($event)"
+                                            ariaLabel="Edit Market Status"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <app-label htmlFor="edit-date">Resolution Date (UTC) *</app-label>
+                                    <app-input
+                                        id="edit-date"
+                                        type="datetime-local"
+                                        variant="mono"
+                                        [value]="editResolutionDateInput()"
+                                        (valueChange)="onValueChange(editResolutionDateInput, $event)"
+                                        ariaLabel="Edit Resolution Date"
+                                    />
+                                </div>
+
+                                <div class="form-group">
+                                    <app-label htmlFor="edit-desc">Detailed Resolution Criteria *</app-label>
+                                    <app-textarea
+                                        id="edit-desc"
+                                        [rows]="3"
+                                        [value]="editDescription()"
+                                        (valueChange)="editDescription.set($event)"
+                                        ariaLabel="Edit Description"
+                                    />
+                                </div>
+
+                                <div class="form-group">
+                                    <app-label htmlFor="edit-source">Authoritative Resolution Source *</app-label>
+                                    <app-input
+                                        id="edit-source"
+                                        [value]="editResolutionSource()"
+                                        (valueChange)="onValueChange(editResolutionSource, $event)"
+                                        ariaLabel="Edit Resolution Source"
+                                    />
+                                </div>
+
+                                <div class="form-group">
+                                    <app-label htmlFor="edit-image">Image URL</app-label>
+                                    <app-input
+                                        id="edit-image"
+                                        [value]="editImageUrl()"
+                                        (valueChange)="onValueChange(editImageUrl, $event)"
+                                        ariaLabel="Edit Image URL"
+                                    />
+                                </div>
+
+                                <div class="modal-footer">
+                                    <app-button variant="outline" size="default" type="button" (btnClick)="closeEditModal()" ariaLabel="Cancel editing">
+                                        Cancel
+                                    </app-button>
+                                    <app-button variant="primary" size="default" [loading]="isEditingSubmitting()" ariaLabel="Save market changes">
+                                        Save Changes
+                                    </app-button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                }
+
+                <!-- Delete Confirmation Modal -->
+                @if (deletingMarket(); as dm) {
+                    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title">
+                        <div class="modal-content modal-content-sm">
+                            <div class="modal-header">
+                                <div class="modal-title-row">
+                                    <svg lucideTrash2 class="modal-icon text-destructive" [size]="20" aria-hidden="true"></svg>
+                                    <h3 id="delete-dialog-title" class="modal-title">Delete Prediction Market</h3>
+                                </div>
+                                <button type="button" class="modal-close-btn" (click)="closeDeleteModal()" aria-label="Close dialog">
+                                    <svg lucideX [size]="20" aria-hidden="true"></svg>
+                                </button>
+                            </div>
+
+                            <div class="modal-body delete-body">
+                                <p class="delete-warning-text">Are you sure you want to permanently delete this market?</p>
+                                <div class="delete-market-preview">
+                                    <span class="preview-label">Market Question:</span>
+                                    <strong class="preview-title">{{ dm.title }}</strong>
+                                    <span class="mono-sub">ID: {{ dm.id }}</span>
+                                </div>
+                                <div class="danger-box">
+                                    <p class="danger-text">
+                                        Warning: This permanently removes the market record, all liquidity pool balances, order-flow trades, and double-entry
+                                        ledger entries from Neon DB. This action cannot be reversed.
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div class="modal-footer">
+                                <app-button variant="outline" size="default" (btnClick)="closeDeleteModal()" ariaLabel="Cancel deletion"> Cancel </app-button>
+                                <app-button
+                                    variant="destructive"
+                                    size="default"
+                                    [loading]="isDeletingSubmitting()"
+                                    (btnClick)="confirmDeleteMarket()"
+                                    ariaLabel="Confirm permanent deletion"
+                                >
+                                    Permanently Delete
+                                </app-button>
+                            </div>
+                        </div>
+                    </div>
+                }
             }
         </div>
     `,
@@ -544,9 +858,46 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 margin: 0;
             }
 
+            .header-right {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }
+
+            .admin-identity-pill {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                background-color: rgba(168, 85, 247, 0.1);
+                border: 1px solid rgba(168, 85, 247, 0.3);
+                padding: 6px 12px;
+                border-radius: var(--radius-pill, 9999px);
+                font-family: var(--font-ui);
+                font-size: 12px;
+            }
+
+            .identity-dot {
+                width: 7px;
+                height: 7px;
+                border-radius: 50%;
+                background-color: var(--outcome-yes, #10b981);
+                box-shadow: 0 0 6px var(--outcome-yes, #10b981);
+            }
+
+            .identity-role {
+                font-weight: 700;
+                color: #a855f7;
+            }
+
+            .identity-email {
+                color: var(--ink-secondary, #9d97b8);
+                font-family: var(--font-mono);
+                font-size: 11px;
+            }
+
             /* Gatekeeper Card */
             .gatekeeper-card {
-                max-width: 480px;
+                max-width: 520px;
                 margin: 40px auto;
                 background-color: var(--surface-card, #111622);
                 border: 1px solid var(--hairline, #1e2638);
@@ -587,21 +938,73 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 margin: 0;
             }
 
-            .gate-desc {
+            .db-admin-notice {
+                width: 100%;
+                padding: 16px;
+                border-radius: var(--radius-md, 10px);
+                text-align: left;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .db-admin-notice.warning-box {
+                background-color: rgba(245, 158, 11, 0.08);
+                border: 1px solid rgba(245, 158, 11, 0.3);
+            }
+
+            .db-admin-notice.info-box {
+                background-color: rgba(168, 85, 247, 0.08);
+                border: 1px solid rgba(168, 85, 247, 0.3);
+            }
+
+            .notice-title {
                 font-family: var(--font-ui);
                 font-size: 13px;
+                font-weight: 700;
+                color: var(--status-warning, #f59e0b);
+                margin: 0;
+            }
+
+            .notice-desc {
+                font-family: var(--font-ui);
+                font-size: 12px;
                 color: var(--muted, #9d97b8);
                 margin: 0;
                 line-height: 1.4;
             }
 
-            .code-pill {
+            .user-highlight {
+                color: var(--ink, #f8f7ff);
+            }
+
+            .notice-sql-label {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--ink-secondary, #9d97b8);
+                margin: 4px 0 0;
+            }
+
+            .sql-code-block {
+                margin: 0;
+                padding: 8px 10px;
+                background-color: #07090e;
+                border: 1px solid var(--hairline, #1e2638);
+                border-radius: var(--radius-xs, 4px);
                 font-family: var(--font-mono);
-                font-size: 12px;
-                color: #a855f7;
-                background-color: rgba(168, 85, 247, 0.15);
-                padding: 2px 6px;
-                border-radius: 4px;
+                font-size: 11px;
+                color: #38bdf8;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-break: break-all;
+            }
+
+            .notice-hint {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                color: var(--muted, #9d97b8);
+                margin: 0;
             }
 
             .gate-form {
@@ -624,17 +1027,6 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 color: var(--muted, #9d97b8);
             }
 
-            .hint-fill-btn {
-                background: none;
-                border: none;
-                color: var(--primary-border, #a855f7);
-                cursor: pointer;
-                font-family: var(--font-ui);
-                font-weight: 600;
-                padding: 0;
-                text-decoration: underline;
-            }
-
             /* Workspace Tabs */
             .workspace-tabs {
                 display: flex;
@@ -642,13 +1034,14 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 gap: 8px;
                 border-bottom: 1px solid var(--hairline, #1e2638);
                 padding-bottom: 8px;
+                flex-wrap: wrap;
             }
 
             .tab-btn {
                 display: inline-flex;
                 align-items: center;
                 gap: 8px;
-                min-height: 44px;
+                min-height: var(--touch-target-min, 40px);
                 padding: 8px 18px;
                 border-radius: var(--radius-md, 10px);
                 background-color: transparent;
@@ -671,6 +1064,181 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 color: var(--ink, #f8f7ff);
                 border-color: var(--hairline, #1e2638);
                 font-weight: 700;
+            }
+
+            /* Manage Markets Tab */
+            .manage-markets-pane {
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+            }
+
+            .manage-header-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                flex-wrap: wrap;
+            }
+
+            .section-title {
+                font-family: var(--font-ui);
+                font-size: 20px;
+                font-weight: 700;
+                color: var(--ink, #f8f7ff);
+                margin: 0 0 4px;
+            }
+
+            .section-desc {
+                font-family: var(--font-ui);
+                font-size: 13px;
+                color: var(--muted, #9d97b8);
+                margin: 0;
+            }
+
+            .manage-header-actions {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .empty-markets-card {
+                background-color: var(--surface-card, #111622);
+                border: 1px dashed var(--hairline, #1e2638);
+                border-radius: var(--radius-lg, 14px);
+                padding: 48px 24px;
+                text-align: center;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 14px;
+            }
+
+            .empty-icon-circle {
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                background-color: rgba(168, 85, 247, 0.1);
+                color: #a855f7;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+
+            .empty-title {
+                font-family: var(--font-ui);
+                font-size: 18px;
+                font-weight: 700;
+                color: var(--ink, #f8f7ff);
+                margin: 0;
+            }
+
+            .empty-desc {
+                font-family: var(--font-ui);
+                font-size: 13px;
+                color: var(--muted, #9d97b8);
+                max-width: 440px;
+                margin: 0 0 8px;
+            }
+
+            .markets-table-container {
+                background-color: var(--surface-card, #111622);
+                border: 1px solid var(--hairline, #1e2638);
+                border-radius: var(--radius-lg, 14px);
+                overflow-x: auto;
+            }
+
+            .markets-table {
+                width: 100%;
+                border-collapse: collapse;
+                text-align: left;
+                font-family: var(--font-ui);
+                font-size: 13px;
+            }
+
+            .markets-table th {
+                padding: 14px 16px;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--muted, #9d97b8);
+                border-bottom: 1px solid var(--hairline, #1e2638);
+                background-color: rgba(0, 0, 0, 0.2);
+            }
+
+            .markets-table td {
+                padding: 14px 16px;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+                color: var(--ink, #f8f7ff);
+                vertical-align: middle;
+            }
+
+            .markets-table tbody tr:hover {
+                background-color: rgba(255, 255, 255, 0.02);
+            }
+
+            .td-market {
+                max-width: 320px;
+            }
+
+            .market-cell-title {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .table-market-link {
+                color: var(--ink, #f8f7ff);
+                font-weight: 600;
+                text-decoration: none;
+                transition: color 0.15s ease;
+            }
+
+            .table-market-link:hover {
+                color: var(--accent, #00d4ff);
+                text-decoration: underline;
+            }
+
+            .mono-sub {
+                font-family: var(--font-mono);
+                font-size: 11px;
+                color: var(--muted, #9d97b8);
+            }
+
+            .prob-cell {
+                font-family: var(--font-mono);
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .prob-yes {
+                color: var(--outcome-yes, #10b981);
+            }
+
+            .prob-sep {
+                color: var(--hairline, #1e2638);
+            }
+
+            .prob-no {
+                color: var(--outcome-no, #fb7185);
+            }
+
+            .th-actions {
+                text-align: right;
+            }
+
+            .td-actions {
+                text-align: right;
+            }
+
+            .action-buttons-group {
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                justify-content: flex-end;
             }
 
             /* Create Market Layout */
@@ -980,22 +1548,176 @@ const ADMIN_TOKEN_KEY = 'bayesmarket_admin_token';
                 border-radius: var(--radius-xs, 4px);
                 border: 1px solid rgba(255, 255, 255, 0.06);
             }
+
+            /* Modal Backdrop & Dialog */
+            .modal-backdrop {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(7, 9, 14, 0.8);
+                backdrop-filter: blur(4px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+                padding: 20px;
+            }
+
+            .modal-content {
+                background-color: var(--surface-card, #111622);
+                border: 1px solid var(--hairline, #1e2638);
+                border-radius: var(--radius-lg, 14px);
+                width: 100%;
+                max-width: 640px;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+                display: flex;
+                flex-direction: column;
+            }
+
+            .modal-content-sm {
+                max-width: 480px;
+            }
+
+            .modal-header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 20px 24px;
+                border-bottom: 1px solid var(--hairline, #1e2638);
+            }
+
+            .modal-title-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+
+            .modal-icon {
+                color: var(--primary-border, #a855f7);
+            }
+
+            .modal-icon.text-destructive {
+                color: var(--outcome-no, #fb7185);
+            }
+
+            .modal-title {
+                font-family: var(--font-ui);
+                font-size: 18px;
+                font-weight: 700;
+                color: var(--ink, #f8f7ff);
+                margin: 0;
+            }
+
+            .modal-close-btn {
+                background: none;
+                border: none;
+                color: var(--muted, #9d97b8);
+                cursor: pointer;
+                padding: 6px;
+                border-radius: var(--radius-sm, 4px);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                min-width: var(--touch-target-min, 40px);
+                min-height: var(--touch-target-min, 40px);
+                transition: color 0.15s ease;
+            }
+
+            .modal-close-btn:hover {
+                color: var(--ink, #f8f7ff);
+                background-color: rgba(255, 255, 255, 0.05);
+            }
+
+            .modal-body {
+                padding: 20px 24px;
+            }
+
+            .modal-footer {
+                display: flex;
+                align-items: center;
+                justify-content: flex-end;
+                gap: 12px;
+                padding: 16px 24px;
+                border-top: 1px solid var(--hairline, #1e2638);
+                background-color: rgba(0, 0, 0, 0.2);
+            }
+
+            /* Delete Modal Details */
+            .delete-body {
+                display: flex;
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .delete-warning-text {
+                font-family: var(--font-ui);
+                font-size: 14px;
+                color: var(--ink, #f8f7ff);
+                margin: 0;
+            }
+
+            .delete-market-preview {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                padding: 12px 14px;
+                background-color: var(--canvas, #07090e);
+                border: 1px solid var(--hairline, #1e2638);
+                border-radius: var(--radius-md, 10px);
+            }
+
+            .preview-label {
+                font-family: var(--font-ui);
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                color: var(--muted, #9d97b8);
+            }
+
+            .preview-title {
+                font-family: var(--font-ui);
+                font-size: 14px;
+                font-weight: 700;
+                color: var(--ink, #f8f7ff);
+            }
+
+            .danger-box {
+                padding: 12px 14px;
+                background-color: rgba(251, 113, 133, 0.08);
+                border: 1px solid rgba(251, 113, 133, 0.3);
+                border-radius: var(--radius-md, 10px);
+            }
+
+            .danger-text {
+                font-family: var(--font-ui);
+                font-size: 12px;
+                color: var(--outcome-no, #fb7185);
+                margin: 0;
+                line-height: 1.4;
+            }
         `
     ]
 })
 export class AdminDashboardComponent implements OnInit {
     private readonly apiService = inject(ApiService);
     private readonly toastService = inject(ToastService);
+    readonly authStore = inject(AuthStore);
 
     readonly isUnlocked = signal<boolean>(false);
     readonly isVerifying = signal<boolean>(false);
     readonly isSubmitting = signal<boolean>(false);
     readonly isResolving = signal<boolean>(false);
+    readonly isEditingSubmitting = signal<boolean>(false);
+    readonly isDeletingSubmitting = signal<boolean>(false);
     readonly isDev = signal<boolean>(typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'));
 
     readonly tokenInput = signal<string>('');
     readonly adminToken = signal<string>('');
-    readonly activeTab = signal<'create' | 'resolve'>('create');
+    readonly activeTab = signal<'manage' | 'create' | 'resolve'>('manage');
 
     // Create Market Form fields
     readonly title = signal<string>('');
@@ -1016,8 +1738,37 @@ export class AdminDashboardComponent implements OnInit {
     readonly oracleProof = signal<string>('');
     readonly resolutionSummary = signal<ResolveMarketResponse | null>(null);
 
+    // Edit Market Modal fields
+    readonly editingMarket = signal<Market | null>(null);
+    readonly editTitle = signal<string>('');
+    readonly editCategory = signal<string>('ai');
+    readonly editStatus = signal<'active' | 'suspended' | 'closed' | 'resolved'>('active');
+    readonly editResolutionDateInput = signal<string>('');
+    readonly editDescription = signal<string>('');
+    readonly editResolutionSource = signal<string>('');
+    readonly editImageUrl = signal<string>('');
+
+    // Delete Market Modal fields
+    readonly deletingMarket = signal<Market | null>(null);
+
+    constructor() {
+        // Auto-unlock if the logged-in user has is_admin = true in Neon DB
+        effect(() => {
+            if (this.authStore.isAdmin()) {
+                this.isUnlocked.set(true);
+                this.loadActiveMarkets();
+            }
+        });
+    }
+
     onValueChange(targetSignal: WritableSignal<string>, val: string | number): void {
         targetSignal.set(String(val ?? ''));
+    }
+
+    onStatusChange(val: string): void {
+        if (val === 'active' || val === 'suspended' || val === 'closed' || val === 'resolved') {
+            this.editStatus.set(val);
+        }
     }
 
     readonly categoryOptions: SelectOption[] = [
@@ -1025,6 +1776,13 @@ export class AdminDashboardComponent implements OnInit {
         { value: 'crypto', label: 'Crypto' },
         { value: 'macro', label: 'Macro Economy' },
         { value: 'science', label: 'Science & Space' }
+    ];
+
+    readonly statusOptions: SelectOption[] = [
+        { value: 'active', label: 'Active (Trading Open)' },
+        { value: 'suspended', label: 'Suspended (Trading Halted)' },
+        { value: 'closed', label: 'Closed (Awaiting Settlement)' },
+        { value: 'resolved', label: 'Resolved (Finalized)' }
     ];
 
     readonly marketOptions = computed<SelectOption[]>(() => {
@@ -1070,6 +1828,25 @@ export class AdminDashboardComponent implements OnInit {
         return (rYes * rNo).toLocaleString('en-US', { maximumFractionDigits: 0 });
     });
 
+    getStatusBadgeVariant(status: string): BadgeVariant {
+        switch (status) {
+            case 'active':
+                return 'profit';
+            case 'suspended':
+                return 'warning';
+            case 'closed':
+                return 'secondary';
+            case 'resolved':
+                return 'resolved';
+            default:
+                return 'outline';
+        }
+    }
+
+    private getEffectiveToken(): string {
+        return this.authStore.token() || this.adminToken();
+    }
+
     ngOnInit(): void {
         this.initDefaultDate();
         this.apiService.getConfig().subscribe({
@@ -1079,6 +1856,13 @@ export class AdminDashboardComponent implements OnInit {
                 }
             }
         });
+
+        if (this.authStore.isAdmin()) {
+            this.isUnlocked.set(true);
+            this.loadActiveMarkets();
+            return;
+        }
+
         if (typeof window !== 'undefined' && window.sessionStorage) {
             const saved = sessionStorage.getItem(ADMIN_TOKEN_KEY);
             if (saved) {
@@ -1096,6 +1880,18 @@ export class AdminDashboardComponent implements OnInit {
         const m = String(future.getMonth() + 1).padStart(2, '0');
         const d = String(future.getDate()).padStart(2, '0');
         this.resolutionDateInput.set(`${y}-${m}-${d}T23:59`);
+    }
+
+    private formatForDateTimeLocal(isoDateStr?: string): string {
+        if (!isoDateStr) return '';
+        const d = new Date(isoDateStr);
+        if (isNaN(d.getTime())) return '';
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        const hours = String(d.getHours()).padStart(2, '0');
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        return `${y}-${m}-${day}T${hours}:${minutes}`;
     }
 
     verifyAndUnlock(tokenOverride?: string): void {
@@ -1142,6 +1938,7 @@ export class AdminDashboardComponent implements OnInit {
         });
     }
 
+    // --- Market Creation ---
     onSubmitCreateMarket(e: Event): void {
         e.preventDefault();
 
@@ -1167,12 +1964,11 @@ export class AdminDashboardComponent implements OnInit {
         };
 
         this.isSubmitting.set(true);
-        this.apiService.createMarket(payload, this.adminToken()).subscribe({
+        this.apiService.createMarket(payload, this.getEffectiveToken()).subscribe({
             next: (res) => {
                 this.isSubmitting.set(false);
                 this.createdMarket.set(res);
                 this.toastService.success('Market Created', `"${res.title}" successfully provisioned!`);
-                // Clear form for next entry
                 this.title.set('');
                 this.description.set('');
                 this.resolutionSource.set('');
@@ -1186,6 +1982,93 @@ export class AdminDashboardComponent implements OnInit {
         });
     }
 
+    // --- Market Editing ---
+    openEditModal(m: Market): void {
+        this.editingMarket.set(m);
+        this.editTitle.set(m.title);
+        this.editCategory.set(m.category);
+        this.editStatus.set(m.status);
+        this.editResolutionDateInput.set(this.formatForDateTimeLocal(m.resolution_date));
+        this.editDescription.set(m.description || '');
+        this.editResolutionSource.set(m.resolution_source || '');
+        this.editImageUrl.set(m.image_url || '');
+    }
+
+    closeEditModal(): void {
+        this.editingMarket.set(null);
+    }
+
+    onSubmitEditMarket(e: Event): void {
+        e.preventDefault();
+        const m = this.editingMarket();
+        if (!m) return;
+
+        const title = this.editTitle().trim();
+        const desc = this.editDescription().trim();
+        const source = this.editResolutionSource().trim();
+        const rawDate = this.editResolutionDateInput().trim();
+
+        if (!title || !desc || !source || !rawDate) {
+            this.toastService.warning('Validation Error', 'Please complete all required fields');
+            return;
+        }
+
+        const payload: EditMarketRequest = {
+            title,
+            description: desc,
+            category: this.editCategory(),
+            resolution_source: source,
+            resolution_date: new Date(rawDate).toISOString(),
+            image_url: this.editImageUrl().trim(),
+            status: this.editStatus()
+        };
+
+        this.isEditingSubmitting.set(true);
+        this.apiService.editMarket(m.id, payload, this.getEffectiveToken()).subscribe({
+            next: (updated) => {
+                this.isEditingSubmitting.set(false);
+                this.closeEditModal();
+                this.toastService.success('Market Updated', `"${updated.title}" successfully updated!`);
+                this.loadActiveMarkets();
+            },
+            error: (err) => {
+                this.isEditingSubmitting.set(false);
+                const msg = err?.error?.message || 'Failed to update market';
+                this.toastService.error('Update Error', msg);
+            }
+        });
+    }
+
+    // --- Market Deletion ---
+    openDeleteModal(m: Market): void {
+        this.deletingMarket.set(m);
+    }
+
+    closeDeleteModal(): void {
+        this.deletingMarket.set(null);
+    }
+
+    confirmDeleteMarket(): void {
+        const m = this.deletingMarket();
+        if (!m) return;
+
+        this.isDeletingSubmitting.set(true);
+        this.apiService.deleteMarket(m.id, this.getEffectiveToken()).subscribe({
+            next: (res) => {
+                this.isDeletingSubmitting.set(false);
+                this.closeDeleteModal();
+                this.toastService.success('Market Deleted', `"${m.title}" was permanently removed.`);
+                this.loadActiveMarkets();
+            },
+            error: (err) => {
+                this.isDeletingSubmitting.set(false);
+                const msg = err?.error?.message || 'Failed to delete market';
+                this.toastService.error('Delete Error', msg);
+            }
+        });
+    }
+
+    // --- Market Resolution ---
     onSubmitResolveMarket(): void {
         const marketId = this.selectedMarketId();
         const proof = this.oracleProof().trim();
@@ -1198,7 +2081,7 @@ export class AdminDashboardComponent implements OnInit {
 
         this.isResolving.set(true);
         const idempotencyKey = `resolve-${marketId}-${Date.now()}`;
-        this.apiService.resolveMarket(marketId, { winning_outcome: outcome, oracle_proof: proof }, this.adminToken(), idempotencyKey).subscribe({
+        this.apiService.resolveMarket(marketId, { winning_outcome: outcome, oracle_proof: proof }, this.getEffectiveToken(), idempotencyKey).subscribe({
             next: (res) => {
                 this.isResolving.set(false);
                 this.resolutionSummary.set(res);

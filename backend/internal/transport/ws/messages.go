@@ -5,6 +5,8 @@ const (
 	MessageTypePriceUpdate    = "PRICE_UPDATE"
 	MessageTypeTradeEvent     = "TRADE_EVENT"
 	MessageTypeMarketResolved = "MARKET_RESOLVED"
+	MessageTypeMarketUpdated  = "MARKET_UPDATED"
+	MessageTypeMarketDeleted  = "MARKET_DELETED"
 	MessageTypePing           = "PING"
 	MessageTypePong           = "PONG"
 )
@@ -45,4 +47,22 @@ type MarketResolvedMessage struct {
 	MarketID       string `json:"market_id"`
 	WinningOutcome string `json:"winning_outcome"`
 	Timestamp      string `json:"timestamp"`
+}
+
+// MarketUpdatedMessage encapsulates administrative market changes.
+type MarketUpdatedMessage struct {
+	Type        string `json:"type"`
+	MarketID    string `json:"market_id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Category    string `json:"category,omitempty"`
+	Status      string `json:"status,omitempty"`
+	Timestamp   string `json:"timestamp"`
+}
+
+// MarketDeletedMessage encapsulates market removal notifications.
+type MarketDeletedMessage struct {
+	Type      string `json:"type"`
+	MarketID  string `json:"market_id"`
+	Timestamp string `json:"timestamp"`
 }

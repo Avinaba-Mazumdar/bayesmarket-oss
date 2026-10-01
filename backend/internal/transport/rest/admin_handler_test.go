@@ -246,3 +246,85 @@ func TestAdminResolveLiveWorkflow(t *testing.T) {
 	_, _ = pool.Exec(ctx, "DELETE FROM markets WHERE id = $1", testMarketID)
 	_, _ = pool.Exec(ctx, "DELETE FROM users WHERE id IN ($1, $2)", userWinnerID, userLoserID)
 }
+
+// TestAdminMarketCRUDWorkflow tests creation, editing, and deletion of a market.
+func TestAdminMarketCRUDWorkflow(t *testing.T) {
+	pool, cfg, router := getTestEnv(t)
+	defer pool.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 1. Create Market
+	createPayload := `{
+		"title": "Will Unit Test Market Pass In 2026?",
+		"description": "Test market description for CRUD verification",
+		"category": "ai",
+		"resolution_source": "https://example.com/test",
+		"resolution_date": "2026-12-31T23:59:59Z",
+		"initial_collateral_usdc": "1000",
+		"initial_probability_yes": "0.60"
+	}`
+	wCreate := httptest.NewRecorder()
+	reqCreate, _ := http.NewRequest(http.MethodPost, "/api/v1/admin/markets", bytes.NewBufferString(createPayload))
+	reqCreate.Header.Set("Content-Type", "application/json")
+	reqCreate.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	router.ServeHTTP(wCreate, reqCreate)
+
+	if wCreate.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 Created from POST /api/v1/admin/markets, got %d: %s", wCreate.Code, wCreate.Body.String())
+	}
+
+	var createdMarket map[string]interface{}
+	if err := json.Unmarshal(wCreate.Body.Bytes(), &createdMarket); err != nil {
+		t.Fatalf("Failed to parse created market: %v", err)
+	}
+	marketID, ok := createdMarket["id"].(string)
+	if !ok || marketID == "" {
+		t.Fatalf("Created market missing ID: %+v", createdMarket)
+	}
+
+	// 2. Edit Market
+	editPayload := `{
+		"title": "Will Unit Test Market Pass In 2026? (Updated)",
+		"description": "Updated description",
+		"status": "suspended"
+	}`
+	wEdit := httptest.NewRecorder()
+	reqEdit, _ := http.NewRequest(http.MethodPut, "/api/v1/admin/markets/"+marketID, bytes.NewBufferString(editPayload))
+	reqEdit.Header.Set("Content-Type", "application/json")
+	reqEdit.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	router.ServeHTTP(wEdit, reqEdit)
+
+	if wEdit.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK from PUT /api/v1/admin/markets/:id, got %d: %s", wEdit.Code, wEdit.Body.String())
+	}
+
+	var editedMarket map[string]interface{}
+	if err := json.Unmarshal(wEdit.Body.Bytes(), &editedMarket); err != nil {
+		t.Fatalf("Failed to parse edited market: %v", err)
+	}
+	if editedMarket["title"] != "Will Unit Test Market Pass In 2026? (Updated)" {
+		t.Errorf("Expected updated title, got %v", editedMarket["title"])
+	}
+	if editedMarket["status"] != "suspended" {
+		t.Errorf("Expected status 'suspended', got %v", editedMarket["status"])
+	}
+
+	// 3. Delete Market
+	wDel := httptest.NewRecorder()
+	reqDel, _ := http.NewRequest(http.MethodDelete, "/api/v1/admin/markets/"+marketID, nil)
+	reqDel.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	router.ServeHTTP(wDel, reqDel)
+
+	if wDel.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK from DELETE /api/v1/admin/markets/:id, got %d: %s", wDel.Code, wDel.Body.String())
+	}
+
+	// Verify market is deleted from database
+	var count int
+	_ = pool.QueryRow(ctx, "SELECT COUNT(*) FROM markets WHERE id = $1", marketID).Scan(&count)
+	if count != 0 {
+		t.Errorf("Expected market to be deleted from DB, found count %d", count)
+	}
+}

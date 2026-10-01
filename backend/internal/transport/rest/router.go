@@ -238,7 +238,7 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	router.HEAD("/health", healthHandler)
 
 	// Prometheus metrics endpoint (requires Admin token/auth)
-	router.GET("/metrics", middleware.RequireAdminAuth(adminToken, jwtSecret), func(c *gin.Context) {
+	router.GET("/metrics", middleware.RequireAdminAuth(adminToken, jwtSecret, pool), func(c *gin.Context) {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 
@@ -328,20 +328,28 @@ bayesmarket_up 1
 			tradeHandler.HandleCashOut,
 		)
 
-		// 5. Admin Market Management, Creation & Resolution (Protected)
+		// 5. Admin Market Management, Creation, Edit, Delete & Resolution (Protected)
 		admin := v1.Group("/admin")
 		admin.Use(actionLimiter.LimitByIP())
 		{
 			admin.GET("/verify",
-				middleware.RequireAdminAuth(adminToken, jwtSecret),
+				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
 				adminHandler.HandleVerifyAdmin,
 			)
 			admin.POST("/markets",
-				middleware.RequireAdminAuth(adminToken, jwtSecret),
+				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
 				adminHandler.HandleCreateMarket,
 			)
+			admin.PUT("/markets/:id",
+				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				adminHandler.HandleEditMarket,
+			)
+			admin.DELETE("/markets/:id",
+				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				adminHandler.HandleDeleteMarket,
+			)
 			admin.POST("/markets/:id/resolve",
-				middleware.RequireAdminAuth(adminToken, jwtSecret),
+				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
 				adminHandler.HandleResolveMarket,
 			)
 		}

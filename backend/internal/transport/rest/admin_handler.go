@@ -39,6 +39,17 @@ type CreateMarketRequest struct {
 	InitialProbabilityNo  string `json:"initial_probability_no"`  // e.g. "0.50000000" or "50" (optional)
 }
 
+// EditMarketRequest defines input payload for updating an existing prediction market.
+type EditMarketRequest struct {
+	Title            *string `json:"title"`
+	Description      *string `json:"description"`
+	Category         *string `json:"category"`
+	ResolutionSource *string `json:"resolution_source"`
+	ResolutionDate   *string `json:"resolution_date"`
+	ImageURL         *string `json:"image_url"`
+	Status           *string `json:"status"` // 'active', 'suspended', 'locked'
+}
+
 // ResolveMarketRequest defines input payload for settling a prediction market.
 type ResolveMarketRequest struct {
 	WinningOutcome string `json:"winning_outcome" binding:"required"`
@@ -792,5 +803,262 @@ func (h *AdminHandler) HandleCreateMarket(c *gin.Context) {
 		"probability_yes_pct": probYes.Mul(decimal.NewFromInt(100)).StringFixed(2),
 		"probability_no_pct":  probNo.Mul(decimal.NewFromInt(100)).StringFixed(2),
 		"created_at":          createdAt.Format(time.RFC3339),
+	})
+}
+
+// HandleEditMarket updates mutable metadata and status of an existing prediction market.
+//
+// PUT /api/v1/admin/markets/:id
+func (h *AdminHandler) HandleEditMarket(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	marketIDParam := strings.TrimSpace(c.Param("id"))
+	marketID, err := uuid.Parse(marketIDParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_market_id", "message": "Market ID must be a valid UUID"})
+		return
+	}
+
+	var req EditMarketRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_payload", "message": "Failed to parse edit market request"})
+		return
+	}
+
+	// Acquire in-process lock
+	unlock := h.locks.acquire("market:" + marketID.String())
+	defer unlock()
+
+	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to begin transaction"})
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// Verify market exists
+	var (
+		curSlug             string
+		curTitle            string
+		curDescription      string
+		curCategory         string
+		curImageURL         *string
+		curResolutionSource string
+		curResolutionDate   time.Time
+		curStatus           string
+		curWinningOutcome   *string
+		curCreatedAt        time.Time
+	)
+	query := `
+		SELECT slug, title, description, category, image_url, resolution_source, resolution_date, status, winning_outcome, created_at
+		FROM markets
+		WHERE id = $1
+		FOR UPDATE;
+	`
+	err = tx.QueryRow(ctx, query, marketID).Scan(
+		&curSlug, &curTitle, &curDescription, &curCategory, &curImageURL,
+		&curResolutionSource, &curResolutionDate, &curStatus, &curWinningOutcome, &curCreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "market_not_found", "message": "Market does not exist"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to query market"})
+		return
+	}
+
+	if curStatus == "resolved" || curStatus == "settled" {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":   "market_immutable",
+			"message": "Resolved or settled markets cannot be edited",
+		})
+		return
+	}
+
+	newTitle := curTitle
+	if req.Title != nil {
+		t := strings.TrimSpace(*req.Title)
+		if t != "" {
+			newTitle = t
+		}
+	}
+
+	newDesc := curDescription
+	if req.Description != nil {
+		d := strings.TrimSpace(*req.Description)
+		if d != "" {
+			newDesc = d
+		}
+	}
+
+	newCat := curCategory
+	if req.Category != nil {
+		cat := strings.ToLower(strings.TrimSpace(*req.Category))
+		if cat != "" {
+			newCat = cat
+		}
+	}
+
+	newSource := curResolutionSource
+	if req.ResolutionSource != nil {
+		rs := strings.TrimSpace(*req.ResolutionSource)
+		if rs != "" {
+			newSource = rs
+		}
+	}
+
+	newDate := curResolutionDate
+	if req.ResolutionDate != nil {
+		parsedDate, parseErr := parseResolutionDate(*req.ResolutionDate)
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_date", "message": parseErr.Error()})
+			return
+		}
+		newDate = parsedDate
+	}
+
+	newImageURL := ""
+	if curImageURL != nil {
+		newImageURL = *curImageURL
+	}
+	if req.ImageURL != nil {
+		newImageURL = strings.TrimSpace(*req.ImageURL)
+	}
+
+	newStatus := curStatus
+	if req.Status != nil {
+		s := strings.ToLower(strings.TrimSpace(*req.Status))
+		switch s {
+		case "active", "suspended", "locked":
+			newStatus = s
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_status", "message": "Status must be 'active', 'suspended', or 'locked'"})
+			return
+		}
+	}
+
+	updateQuery := `
+		UPDATE markets
+		SET title = $1, description = $2, category = $3, resolution_source = $4, resolution_date = $5, image_url = $6, status = $7
+		WHERE id = $8;
+	`
+	_, err = tx.Exec(ctx, updateQuery, newTitle, newDesc, newCat, newSource, newDate, newImageURL, newStatus, marketID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to update market"})
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to commit market update"})
+		return
+	}
+
+	if h.marketCache != nil {
+		h.marketCache.Invalidate(marketID.String())
+		h.marketCache.InvalidateAll()
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastMarketUpdated(ws.MarketUpdatedMessage{
+			Type:        ws.MessageTypeMarketUpdated,
+			MarketID:    marketID.String(),
+			Title:       newTitle,
+			Description: newDesc,
+			Category:    newCat,
+			Status:      newStatus,
+			Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":                marketID.String(),
+		"slug":              curSlug,
+		"title":             newTitle,
+		"description":       newDesc,
+		"category":          newCat,
+		"image_url":         newImageURL,
+		"resolution_source": newSource,
+		"resolution_date":   newDate.Format(time.RFC3339),
+		"status":            newStatus,
+		"created_at":        curCreatedAt.Format(time.RFC3339),
+	})
+}
+
+// HandleDeleteMarket permanently deletes a prediction market and its dependent records.
+//
+// DELETE /api/v1/admin/markets/:id
+func (h *AdminHandler) HandleDeleteMarket(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	marketIDParam := strings.TrimSpace(c.Param("id"))
+	marketID, err := uuid.Parse(marketIDParam)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_market_id", "message": "Market ID must be a valid UUID"})
+		return
+	}
+
+	// Acquire in-process lock
+	unlock := h.locks.acquire("market:" + marketID.String())
+	defer unlock()
+
+	tx, err := h.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to begin transaction"})
+		return
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var title string
+	err = tx.QueryRow(ctx, "SELECT title FROM markets WHERE id = $1 FOR UPDATE", marketID).Scan(&title)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "market_not_found", "message": "Market does not exist"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to query market"})
+		return
+	}
+
+	// Clean out market-dependent records safely in transactional hierarchy order
+	commands := []string{
+		"DELETE FROM ledger_entries WHERE market_id = $1;",
+		"DELETE FROM trades WHERE market_id = $1;",
+		"DELETE FROM markets WHERE id = $1;", // cascades to liquidity_pools and user_positions
+	}
+	for _, q := range commands {
+		if _, execErr := tx.Exec(ctx, q, marketID); execErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": fmt.Sprintf("Failed to delete market dependencies: %v", execErr)})
+			return
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "database_error", "message": "Failed to commit market deletion"})
+		return
+	}
+
+	if h.marketCache != nil {
+		h.marketCache.Invalidate(marketID.String())
+		h.marketCache.InvalidateAll()
+	}
+
+	if h.hub != nil {
+		h.hub.BroadcastMarketDeleted(ws.MarketDeletedMessage{
+			Type:      ws.MessageTypeMarketDeleted,
+			MarketID:  marketID.String(),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+		})
+	}
+
+	log.Printf("[ADMIN ACTION] Deleted market %s (%q)\n", marketID.String(), title)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":    "deleted",
+		"market_id": marketID.String(),
+		"title":     title,
+		"message":   "Market and dependent trading records successfully deleted",
 	})
 }

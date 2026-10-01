@@ -111,8 +111,8 @@ select,
 textarea,
 [role='button'],
 a.btn {
-    min-height: var(--touch-target-min, 44px);
-    min-width: var(--touch-target-min, 44px);
+    min-height: var(--touch-target-min, 40px);
+    min-width: var(--touch-target-min, 40px);
 }
 
 /* Sensory Overrides: Reduced Motion (SC 2.3.3 Level AAA) */

@@ -1072,28 +1072,23 @@ _(Cascading foreign keys automatically purge associated positions and faucet cla
 
 ---
 
-## 13. Pre-Seeded Default Markets
+## 13. Admin Market Lifecycle Management (Zero Pre-Fed Markets)
 
-On database boot, `seed.go` executes idempotently to populate four realistic prediction markets:
+BayesMarket contains **zero pre-seeded or hardcoded demo markets**. All prediction markets are dynamically provisioned, modified, and settled or deleted by authorized system administrators via the Web UI:
 
-1. **"Will OpenAI release GPT-5 before December 2026?"**  
-   _Category_: AI & Tech | _Initial Odds_: 72% YES / 28% NO | _Virtual reserves_: YES 7,000 / NO 18,000 | _Collateral_: $25,000 USDC
-2. **"Will Bitcoin exceed $125,000 in Q4 2026?"**  
-   _Category_: Crypto | _Initial Odds_: 45% YES / 55% NO | _Virtual reserves_: YES 11,000 / NO 9,000 | _Collateral_: $20,000 USDC
-3. **"Will the US Federal Reserve cut interest rates at the next FOMC?"**  
-   _Category_: Macro / Finance | _Initial Odds_: 84% YES / 16% NO | _Virtual reserves_: YES 8,000 / NO 42,000 | _Collateral_: $50,000 USDC
-4. **"Will SpaceX successfully land a Starship on Mars by 2027?"**  
-   _Category_: Space & Science | _Initial Odds_: 31% YES / 69% NO | _Virtual reserves_: YES 6,900 / NO 3,100 | _Collateral_: $10,000 USDC
-
-For every seed, the loader mints exactly the stated collateral amount of complete sets. Any initial inventory not held by the pool is assigned to a system liquidity-provider account, with matching ledger entries, so issued YES supply, issued NO supply, and collateral reconcile from the first transaction.
+1. **Strict Admin Designation**: Setting an admin can only be done directly from Neon DB (`UPDATE users SET is_admin = true WHERE email = '...';`). No API endpoint exists to escalate privileges.
+2. **Dynamic Market Creation**: Administrators configure title, description, category, resolution criteria, expiration timestamp, initial collateral, and initial odds via `POST /api/v1/admin/markets`.
+3. **Market Editing**: Administrators can modify market metadata and operational status via `PUT /api/v1/admin/markets/:id`. Invariant reserves and collateral remain protected from arbitrary tampering.
+4. **Market Deletion**: Administrators can permanently delete invalid or test prediction markets along with dependent order and ledger records via `DELETE /api/v1/admin/markets/:id`.
+5. **Authoritative Resolution**: Settle contracts and distribute winning share payouts via `POST /api/v1/admin/markets/:id/resolve`.
 
 ---
 
 ## 14. End-to-End Operational & Testing Workflow
 
 1. **Backend & Database Initialization**:
-    - Provision PostgreSQL schema via migrations: `make migrate-up` or run the database migration runner.
-    - Start the Go API engine: `go run cmd/api/main.go`. Seed runner automatically initializes default liquidity pools.
+    - Provision PostgreSQL schema via migrations: `go run cmd/api/main.go -migrate` or run the database migration runner.
+    - Start the Go API engine: `go run cmd/api/main.go`. Prediction markets are created dynamically by administrators via the web interface.
 2. **Frontend Client Startup**:
     - Launch the Angular client: `pnpm dev` or `npm start`.
     - Access the web interface at `http://localhost:4200`.

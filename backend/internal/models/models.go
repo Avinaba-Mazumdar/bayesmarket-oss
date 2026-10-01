@@ -39,6 +39,7 @@ const (
 type User struct {
 	ID          uuid.UUID       `json:"id" db:"id"`
 	IsGuest     bool            `json:"is_guest" db:"is_guest"`
+	IsAdmin     bool            `json:"is_admin" db:"is_admin"`
 	CashBalance decimal.Decimal `json:"cash_balance" db:"cash_balance"`
 	IPAddress   *string         `json:"ip_address,omitempty" db:"ip_address"`
 	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
