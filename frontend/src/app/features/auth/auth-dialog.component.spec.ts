@@ -84,7 +84,7 @@ describe('AuthDialogComponent', () => {
         expect(dialogEl).toBeNull();
     });
 
-    it('should display guest sign-in options when opened for a guest trader', () => {
+    it('should display streamlined guest account view with Sign Out and Google connect option', () => {
         authStore.user.set({
             id: 'guest-1',
             cash_balance: '1000.00',
@@ -96,16 +96,39 @@ describe('AuthDialogComponent', () => {
         fixture.detectChanges();
 
         const el = fixture.nativeElement as HTMLElement;
-        expect(el.querySelector('.upgrade-banner')).toBeTruthy();
-        expect(el.querySelector('.upgrade-banner')?.textContent).toContain('Guest Session Active');
+        expect(el.querySelector('.profile-name')?.textContent).toContain('Guest Trader');
+        expect(el.querySelector('.provider-badge')?.textContent).toContain('Guest Trader');
+        expect(el.querySelector('.guest-upgrade-box')).toBeTruthy();
 
         const googleBtn = el.querySelector('.google-signin-btn') as HTMLButtonElement;
         expect(googleBtn).toBeTruthy();
-        expect(googleBtn.textContent).toContain('Continue with Google');
+        expect(googleBtn.textContent).toContain('Connect Google Account');
 
-        const devSignBtn = el.querySelector('.dev-box button');
-        expect(devSignBtn).toBeTruthy();
-        expect(devSignBtn?.textContent).toContain('Quick Dev Sign-In');
+        const signOutBtn = el.querySelector('.profile-actions app-button');
+        expect(signOutBtn).toBeTruthy();
+        expect(signOutBtn?.textContent).toContain('Sign Out');
+
+        // Verify un-necessary components are removed for guest users
+        expect(el.querySelector('.dev-box')).toBeNull();
+        expect(el.querySelector('.simulation-banner')).toBeNull();
+        expect(el.querySelector('.guest-auth')).toBeNull();
+    });
+
+    it('should allow signing out from a guest session', () => {
+        authStore.user.set({
+            id: 'guest-1',
+            cash_balance: '1000.00',
+            is_guest: true,
+            auth_provider: 'guest',
+            created_at: '2026-01-01T00:00:00Z'
+        });
+        authStore.isAuthModalOpen.set(true);
+        fixture.detectChanges();
+
+        const logoutSpy = vi.spyOn(authStore, 'logout');
+        component.onSignOut();
+        expect(logoutSpy).toHaveBeenCalled();
+        expect(authStore.isAuthModalOpen()).toBe(false);
     });
 
     it('should display paper trading notice and guest option for unauthenticated visitors', () => {
