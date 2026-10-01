@@ -355,7 +355,7 @@ import { ToastService } from '../../shared/components/toast/toast.service';
                 justify-content: center;
                 gap: 12px;
                 width: 100%;
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
                 padding: 10px 16px;
                 background-color: #ffffff;
                 color: #1f2937;

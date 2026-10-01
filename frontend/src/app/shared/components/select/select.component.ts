@@ -110,12 +110,12 @@ export type SelectVariant = 'default' | 'mono';
                 box-shadow: 0 0 0 2px var(--focus-ring, rgba(232, 64, 137, 0.35));
             }
 
-            /* --- Sizes (WCAG 2.2 AAA Touch Target: min 44px) --- */
+            /* --- Sizes (WCAG Touch Target: min 40px) --- */
             .select-size-default {
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
             }
             .select-size-sm {
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
                 padding: 0 10px;
                 font-size: 13px;
             }
@@ -192,7 +192,7 @@ export type SelectVariant = 'default' | 'mono';
                 align-items: center;
                 justify-content: space-between;
                 gap: 8px;
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
                 padding: 8px 12px;
                 border-radius: var(--radius-md, 10px);
                 color: var(--ink, #f8fafc);

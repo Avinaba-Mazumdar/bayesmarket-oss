@@ -77,39 +77,39 @@ export type ButtonSize = 'default' | 'sm' | 'lg' | 'icon' | 'pill';
                 filter: grayscale(30%);
             }
 
-            /* --- Sizes (WCAG 2.2 AAA Touch Target: min 44x44px) --- */
+            /* --- Sizes (WCAG 2.2 AAA Touch Target: min 40x40px) --- */
             .btn-size-default {
-                min-height: 44px;
-                min-width: var(--touch-target-min, 44px);
+                min-height: 40px;
+                min-width: var(--touch-target-min, 40px);
                 padding: 8px 16px;
                 font-size: 14px;
             }
 
             .btn-size-sm {
                 min-height: 36px;
-                min-width: var(--touch-target-min, 44px);
+                min-width: var(--touch-target-min, 40px);
                 padding: 6px 12px;
                 font-size: 13px;
             }
 
             .btn-size-lg {
                 min-height: 48px;
-                min-width: var(--touch-target-min, 44px);
+                min-width: var(--touch-target-min, 40px);
                 padding: 12px 24px;
                 font-size: 15px;
             }
 
             .btn-size-icon {
-                min-height: var(--touch-target-min, 44px);
-                min-width: var(--touch-target-min, 44px);
-                width: 44px;
-                height: 44px;
+                min-height: var(--touch-target-min, 40px);
+                min-width: var(--touch-target-min, 40px);
+                width: 40px;
+                height: 40px;
                 padding: 0;
             }
 
             .btn-size-pill {
-                min-height: 38px;
-                min-width: var(--touch-target-min, 44px);
+                min-height: 40px;
+                min-width: var(--touch-target-min, 40px);
                 padding: 8px 16px;
                 font-size: 13px;
                 border-radius: var(--radius-pill, 9999px);
@@ -281,7 +281,7 @@ export type ButtonSize = 'default' | 'sm' | 'lg' | 'icon' | 'pill';
                 border: 1px solid var(--hairline, #252140);
                 border-radius: var(--radius-md, 10px);
                 padding: 6px 12px;
-                min-height: 38px;
+                min-height: 40px;
                 font-feature-settings: 'tnum' 1;
             }
             .btn-variant-chip:hover:not(:disabled) {

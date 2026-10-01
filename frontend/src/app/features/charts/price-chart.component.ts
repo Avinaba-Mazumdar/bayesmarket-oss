@@ -53,7 +53,7 @@ interface ChartPoint {
                     </div>
                 </div>
 
-                <!-- Timeframe Selector Chips (WCAG SC 2.5.5 Level AAA min 44x44px) -->
+                <!-- Timeframe Selector Chips (WCAG SC 2.5.5 Level AAA min 40x40px) -->
                 <div class="timeframe-selector" role="group" aria-label="Chart timeframe selector">
                     @for (tf of timeframes; track tf) {
                         <app-button

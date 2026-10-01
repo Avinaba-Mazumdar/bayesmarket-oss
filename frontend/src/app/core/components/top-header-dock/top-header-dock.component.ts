@@ -1,9 +1,8 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
-import { LucideLogIn, LucideSun, LucideMoon } from '@lucide/angular';
+import { LucideLogIn, LucideSun, LucideMoon, LucideShieldCheck } from '@lucide/angular';
 import { ThemeService } from '../../services/theme.service';
 import { ButtonComponent } from '../../../shared/components/button/button.component';
-import { BadgeComponent } from '../../../shared/components/badge/badge.component';
 import { AvatarComponent } from '../../../shared/components/avatar/avatar.component';
 import { BrandIconComponent } from '../../../shared/components/brand-icon/brand-icon.component';
 import { AuthStore } from '../../../state/auth.store';
@@ -12,7 +11,7 @@ import { AuthStore } from '../../../state/auth.store';
     selector: 'app-top-header-dock',
     standalone: true,
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [RouterLink, RouterLinkActive, ButtonComponent, BadgeComponent, AvatarComponent, BrandIconComponent, LucideLogIn, LucideSun, LucideMoon],
+    imports: [RouterLink, RouterLinkActive, ButtonComponent, AvatarComponent, BrandIconComponent, LucideLogIn, LucideSun, LucideMoon, LucideShieldCheck],
     template: `
         <header class="top-header-dock" role="banner">
             <div class="dock-container">
@@ -26,18 +25,18 @@ import { AuthStore } from '../../../state/auth.store';
                     <nav class="nav-links" role="navigation" aria-label="Primary Navigation">
                         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-tab"> Markets </a>
                         <a routerLink="/portfolio" routerLinkActive="active" class="nav-tab"> Portfolio </a>
+                        @if (authStore.isAdmin()) {
+                            <a routerLink="/admin" routerLinkActive="active" class="nav-tab admin-nav-tab" aria-label="Superadmin operations console">
+                                <svg lucideShieldCheck class="admin-tab-icon" [size]="14" aria-hidden="true"></svg>
+                                <span>Admin</span>
+                            </a>
+                        }
                     </nav>
                 </div>
 
-                <!-- Right: Balance, Faucet, Theme Toggle, Auth -->
+                <!-- Right: Faucet, Theme Toggle, Auth -->
                 <div class="dock-right">
                     @if (authStore.isAuthenticated()) {
-                        <!-- User Cash Balance Badge (JetBrains Mono tabular figures) -->
-                        <app-badge variant="outline" size="sm" class="balance-badge" aria-label="Current cash balance">
-                            <span class="balance-label">USDC</span>
-                            <span class="balance-amount tabular-nums">{{ userBalance() }}</span>
-                        </app-badge>
-
                         <!-- Faucet Button -->
                         <app-button
                             variant="secondary"
@@ -149,8 +148,8 @@ import { AuthStore } from '../../../state/auth.store';
                 align-items: center;
                 gap: 10px;
                 text-decoration: none;
-                min-height: var(--touch-target-min, 44px);
-                min-width: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
+                min-width: var(--touch-target-min, 40px);
             }
             .brand-emblem {
                 display: flex;
@@ -206,35 +205,26 @@ import { AuthStore } from '../../../state/auth.store';
                 border: 1px solid var(--hairline, #252140);
                 font-weight: 700;
             }
-            .balance-badge {
-                display: inline-flex;
-                align-items: center;
+            .admin-nav-tab {
+                gap: 6px;
+                color: #e84089;
+                border: 1px solid rgba(232, 64, 137, 0.25);
+                background-color: rgba(232, 64, 137, 0.08);
             }
-            .balance-badge ::ng-deep .badge {
-                gap: 8px;
-                min-height: 38px;
-                padding: 6px 14px;
-                background-color: var(--surface-card, #131126);
-                border: 1px solid var(--hairline, #252140);
-                border-radius: var(--radius-pill, 9999px);
+            .admin-nav-tab:hover {
+                background-color: rgba(232, 64, 137, 0.16);
+                border-color: rgba(232, 64, 137, 0.5);
+                color: #ff60a8;
             }
-            .balance-label {
-                font-family: var(--font-ui);
-                font-size: 11px;
-                font-weight: 700;
-                color: var(--accent, #00d4ff);
-                letter-spacing: 0.5px;
+            .admin-nav-tab.active {
+                background-color: rgba(232, 64, 137, 0.22);
+                border-color: #e84089;
+                color: #ffffff;
             }
-            .balance-amount {
-                font-family: var(--font-mono);
-                font-weight: 700;
-                color: var(--ink, #f8f7ff);
-                font-feature-settings: 'tnum' 1;
+            .admin-tab-icon {
+                flex-shrink: 0;
             }
             @media (max-width: 768px) {
-                .balance-label {
-                    display: none;
-                }
                 .dock-container {
                     gap: 8px;
                 }
@@ -355,10 +345,6 @@ import { AuthStore } from '../../../state/auth.store';
 export class TopHeaderDockComponent {
     readonly authStore = inject(AuthStore);
     readonly themeService = inject(ThemeService);
-
-    get userBalance() {
-        return this.authStore.cashBalance;
-    }
 
     get isClaimingFaucet() {
         return this.authStore.isClaimingFaucet;

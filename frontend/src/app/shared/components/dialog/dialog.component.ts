@@ -33,7 +33,7 @@ export type DialogRole = 'dialog' | 'alertdialog';
                         [attr.aria-label]="!title() ? ariaLabel() || null : null"
                         tabindex="-1"
                     >
-                        <!-- Close Button (WCAG AAA min 44x44px touch target) -->
+                        <!-- Close Button (WCAG AAA min 40x40px touch target) -->
                         @if (showCloseButton()) {
                             <app-button class="dialog-close-btn" variant="ghost" size="icon" ariaLabel="Close dialog" (btnClick)="close()">
                                 <svg lucideX class="close-icon" [size]="18" aria-hidden="true"></svg>

@@ -55,7 +55,7 @@ describe('TopHeaderDockComponent', () => {
         fixture.detectChanges();
     });
 
-    it('should render brand logo, navigation links, and balance pill when authenticated', () => {
+    it('should render brand logo and navigation links when authenticated, without balance badge', () => {
         authStore.token.set('tok-1');
         authStore.user.set({
             id: 'u-1',
@@ -69,7 +69,7 @@ describe('TopHeaderDockComponent', () => {
 
         const el = fixture.nativeElement as HTMLElement;
         expect(el.querySelector('.brand-text')?.textContent).toContain('BayesMarket');
-        expect(el.querySelector('.balance-amount')?.textContent).toContain('$1,000.00');
+        expect(el.querySelector('.balance-badge')).toBeNull();
 
         const navTabs = el.querySelectorAll('.nav-tab');
         expect(navTabs.length).toBe(2);

@@ -32,13 +32,13 @@ export type SwitchColor = 'primary' | 'yes';
                 vertical-align: middle;
             }
 
-            /* The outer button satisfies WCAG 2.2 AAA min 44x44px touch target */
+            /* The outer button satisfies WCAG min 40x40px touch target */
             button {
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                min-width: var(--touch-target-min, 44px);
-                min-height: var(--touch-target-min, 44px);
+                min-width: var(--touch-target-min, 40px);
+                min-height: var(--touch-target-min, 40px);
                 padding: 4px;
                 background: transparent;
                 border: none;

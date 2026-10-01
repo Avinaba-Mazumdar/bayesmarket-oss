@@ -196,14 +196,14 @@ import { Toast, ToastService } from './toast.service';
                 background-color: var(--surface-card, #111622);
             }
 
-            /* --- Close Button (WCAG 44x44px touch target) --- */
+            /* --- Close Button (WCAG 40x40px touch target) --- */
             .toast-close-btn {
                 flex-shrink: 0;
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
-                min-width: var(--touch-target-min, 44px);
-                min-height: var(--touch-target-min, 44px);
+                min-width: var(--touch-target-min, 40px);
+                min-height: var(--touch-target-min, 40px);
                 margin: -10px -10px -10px 0;
                 background: transparent;
                 border: none;

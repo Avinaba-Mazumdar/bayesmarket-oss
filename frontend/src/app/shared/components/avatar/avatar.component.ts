@@ -74,8 +74,8 @@ export type AvatarStatus = 'online' | 'offline' | 'busy' | 'away';
             }
 
             .avatar-size-default {
-                width: var(--touch-target-min, 44px);
-                height: var(--touch-target-min, 44px);
+                width: var(--touch-target-min, 40px);
+                height: var(--touch-target-min, 40px);
                 font-size: 14px;
             }
 

@@ -210,7 +210,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                 color: var(--muted, #a2b4c9);
                 text-decoration: none;
                 font-weight: 600;
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
                 display: inline-flex;
                 align-items: center;
                 gap: 6px;
@@ -336,7 +336,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                 padding: 8px 16px;
                 border-radius: var(--radius-pill, 9999px);
                 user-select: none;
-                min-height: 44px;
+                min-height: var(--touch-target-min, 40px);
             }
 
             .spot-yes {

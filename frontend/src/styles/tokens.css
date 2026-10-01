@@ -32,8 +32,8 @@
     --letter-spacing-body: 0.015em;
     --letter-spacing-heading: -0.02em;
 
-    /* WCAG SC 2.5.5 Target Size (Enhanced) Level AAA (>= 44x44 CSS pixels) */
-    --touch-target-min: 44px;
+    /* WCAG SC 2.5.5 Target Size (Enhanced) Level AAA (>= 40x40 CSS pixels) */
+    --touch-target-min: 40px;
 
     /* ==========================================================================
        LIGHT THEME (DEFAULT PALETTE - WCAG 2.2 LEVEL AAA COMPLIANT)

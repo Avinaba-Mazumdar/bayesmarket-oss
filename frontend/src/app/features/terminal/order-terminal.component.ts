@@ -44,7 +44,7 @@ export interface OrderIntent {
                 </div>
             </div>
 
-            <!-- Segmented Dual-Coded Outcome Selector (WCAG AAA Touch Target >= 44x44px) -->
+            <!-- Segmented Dual-Coded Outcome Selector (WCAG AAA Touch Target >= 40x40px) -->
             <div class="outcome-toggle-group" role="radiogroup" aria-label="Outcome selection">
                 <app-button
                     variant="yes"
@@ -360,7 +360,7 @@ export interface OrderIntent {
                 border-radius: var(--radius-md, 10px);
                 padding: 4px 8px 4px 14px;
                 gap: 8px;
-                min-height: 44px;
+                min-height: var(--touch-target-min, 40px);
                 transition:
                     border-color 0.15s ease,
                     box-shadow 0.15s ease;

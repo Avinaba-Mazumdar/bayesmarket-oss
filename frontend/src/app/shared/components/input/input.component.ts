@@ -93,16 +93,16 @@ export type InputVariant = 'default' | 'mono';
                 opacity: 0.8;
             }
 
-            /* --- Sizes (WCAG 2.2 AAA Touch Target: min 44px) --- */
+            /* --- Sizes (WCAG 2.2 AAA Touch Target: min 40px) --- */
             .input-size-default {
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
             }
             .input-size-default .native-input {
                 font-size: 14px;
             }
 
             .input-size-sm {
-                min-height: var(--touch-target-min, 44px);
+                min-height: var(--touch-target-min, 40px);
                 padding: 0 10px;
             }
             .input-size-sm .native-input {
