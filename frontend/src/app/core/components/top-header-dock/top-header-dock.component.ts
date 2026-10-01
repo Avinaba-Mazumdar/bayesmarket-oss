@@ -272,6 +272,7 @@ import { AuthStore } from '../../../state/auth.store';
             .theme-toggle-btn:hover {
                 background-color: var(--surface-card-elevated, #1a1733);
                 border-color: var(--primary-border, #7c4dff);
+                color: var(--ink, #ffffff);
                 transform: rotate(15deg);
             }
 
@@ -279,12 +280,8 @@ import { AuthStore } from '../../../state/auth.store';
                 transform: scale(0.92) rotate(15deg);
             }
 
-            .sun-icon {
-                color: var(--status-warning, #78350f);
-            }
-
-            .moon-icon {
-                color: var(--primary-text, #4338ca);
+            .theme-icon {
+                color: currentColor;
             }
 
             /* Auth Styles */
