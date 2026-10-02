@@ -23,6 +23,7 @@ export class AuthStore {
 
     readonly isGuest = computed(() => this.user()?.is_guest ?? false);
     readonly isAdmin = computed(() => this.user()?.is_admin ?? false);
+    readonly isSuperadmin = computed(() => this.isAdmin());
     readonly isAuthenticated = computed(() => !!this.token() && !!this.user());
     readonly authProvider = computed(() => this.user()?.auth_provider || 'none');
     readonly userName = computed(() => this.user()?.name || (this.isGuest() ? 'Guest Trader' : this.isAuthenticated() ? 'Verified Trader' : 'Visitor'));
@@ -124,6 +125,8 @@ export class AuthStore {
         if (existingToken) {
             // Verify session by fetching user profile and portfolio balance
             this.fetchCurrentUserProfile(existingToken);
+        } else {
+            this.isInitializing.set(false);
         }
     }
 
@@ -143,8 +146,10 @@ export class AuthStore {
 
     private fetchCurrentUserProfile(token: string): void {
         if (!this.apiService || typeof this.apiService.getCurrentUser !== 'function') {
+            this.isInitializing.set(false);
             return;
         }
+        this.isInitializing.set(true);
         this.apiService.getCurrentUser(token).subscribe({
             next: (profile) => {
                 if (profile) {
@@ -154,12 +159,14 @@ export class AuthStore {
                     this.updateBalance(formatted);
                     this.persistSession(token, profile);
                 }
+                this.isInitializing.set(false);
             },
             error: (err) => {
                 // If token expired or invalid, clear session
                 if (err?.status === 401) {
                     this.clearSession();
                 }
+                this.isInitializing.set(false);
             }
         });
     }

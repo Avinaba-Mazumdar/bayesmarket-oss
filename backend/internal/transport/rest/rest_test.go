@@ -11,14 +11,47 @@ import (
 
 	"github.com/bayesmarket/bayesmarket/internal/config"
 	"github.com/bayesmarket/bayesmarket/internal/database"
+	"github.com/bayesmarket/bayesmarket/internal/middleware"
 	"github.com/bayesmarket/bayesmarket/internal/testutil"
 	"github.com/bayesmarket/bayesmarket/internal/transport/rest"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func init() {
 	gin.SetMode(gin.TestMode)
+}
+
+func getSuperadminToken(t *testing.T, pool *pgxpool.Pool, cfg *config.Config) string {
+	adminID := uuid.New()
+	if pool != nil {
+		_, err := pool.Exec(context.Background(), `
+			INSERT INTO users (id, is_guest, is_admin, auth_provider, name, email)
+			VALUES ($1, false, true, 'google', 'Test Admin', 'admin@test.local')
+			ON CONFLICT (id) DO UPDATE SET is_admin = true;
+		`, adminID)
+		if err != nil {
+			t.Fatalf("failed to insert test admin user: %v", err)
+		}
+	}
+	claims := middleware.AuthClaims{
+		UserID:       adminID.String(),
+		IsGuest:      false,
+		IsAdmin:      true,
+		IsSuperadmin: true,
+		Email:        "admin@test.local",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
+		},
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signed, err := tok.SignedString([]byte(cfg.JWTSecret))
+	if err != nil {
+		t.Fatalf("failed to sign admin token: %v", err)
+	}
+	return signed
 }
 
 func getTestEnv(t *testing.T) (*pgxpool.Pool, *config.Config, *gin.Engine) {
@@ -313,10 +346,7 @@ func TestAdminCreateMarketAndVerify(t *testing.T) {
 	pool, cfg, router := getTestEnv(t)
 	defer pool.Close()
 
-	adminToken := cfg.AdminToken
-	if adminToken == "" {
-		adminToken = "dev-admin-secret-key-bayesmarket"
-	}
+	adminToken := getSuperadminToken(t, pool, cfg)
 
 	// 1. Test GET /api/v1/admin/verify unauthorized
 	wVerifyFail := httptest.NewRecorder()

@@ -45,7 +45,6 @@ func TestConfig(dbURL string) *config.Config {
 	return &config.Config{
 		DatabaseURL:       dbURL,
 		JWTSecret:         "bayesmarket-development-hmac-sha256-default-secret-key-32b",
-		AdminToken:        "test-admin-secret-token",
 		DisableRateLimits: true,
 		Environment:       "test",
 	}

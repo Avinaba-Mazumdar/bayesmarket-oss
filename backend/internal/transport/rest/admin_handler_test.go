@@ -27,10 +27,10 @@ func TestMetricsEndpoint(t *testing.T) {
 		t.Errorf("Expected /metrics to reject unauthenticated request, got %d", wUnauthed.Code)
 	}
 
-	// Authenticated request with admin token must succeed
+	adminToken := getSuperadminToken(t, pool, cfg)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodGet, "/metrics", nil)
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
@@ -109,7 +109,7 @@ func TestAdminResolveMissingIdempotency(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(`{"winning_outcome":"YES","oracle_proof":"test"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+getSuperadminToken(t, pool, cfg))
 	router.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -177,6 +177,7 @@ func TestAdminResolveLiveWorkflow(t *testing.T) {
 	}
 
 	// 4. Resolve market to YES via admin API
+	superadminToken := getSuperadminToken(t, pool, cfg)
 	idempKey := fmt.Sprintf("resolve-%d", time.Now().UnixNano())
 	resolvePayload := `{"winning_outcome":"YES","oracle_proof":"Official BLS Labor Release #2026-09"}`
 	url := fmt.Sprintf("/api/v1/admin/markets/%s/resolve", testMarketID.String())
@@ -184,7 +185,7 @@ func TestAdminResolveLiveWorkflow(t *testing.T) {
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(resolvePayload))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req.Header.Set("Authorization", "Bearer "+superadminToken)
 	req.Header.Set("Idempotency-Key", idempKey)
 	router.ServeHTTP(w, req)
 
@@ -231,7 +232,7 @@ func TestAdminResolveLiveWorkflow(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	req2, _ := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(resolvePayload))
 	req2.Header.Set("Content-Type", "application/json")
-	req2.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	req2.Header.Set("Authorization", "Bearer "+superadminToken)
 	req2.Header.Set("Idempotency-Key", idempKey)
 	router.ServeHTTP(w2, req2)
 
@@ -255,6 +256,8 @@ func TestAdminMarketCRUDWorkflow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	superadminToken := getSuperadminToken(t, pool, cfg)
+
 	// 1. Create Market
 	createPayload := `{
 		"title": "Will Unit Test Market Pass In 2026?",
@@ -268,7 +271,7 @@ func TestAdminMarketCRUDWorkflow(t *testing.T) {
 	wCreate := httptest.NewRecorder()
 	reqCreate, _ := http.NewRequest(http.MethodPost, "/api/v1/admin/markets", bytes.NewBufferString(createPayload))
 	reqCreate.Header.Set("Content-Type", "application/json")
-	reqCreate.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	reqCreate.Header.Set("Authorization", "Bearer "+superadminToken)
 	router.ServeHTTP(wCreate, reqCreate)
 
 	if wCreate.Code != http.StatusCreated {
@@ -293,7 +296,7 @@ func TestAdminMarketCRUDWorkflow(t *testing.T) {
 	wEdit := httptest.NewRecorder()
 	reqEdit, _ := http.NewRequest(http.MethodPut, "/api/v1/admin/markets/"+marketID, bytes.NewBufferString(editPayload))
 	reqEdit.Header.Set("Content-Type", "application/json")
-	reqEdit.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	reqEdit.Header.Set("Authorization", "Bearer "+superadminToken)
 	router.ServeHTTP(wEdit, reqEdit)
 
 	if wEdit.Code != http.StatusOK {
@@ -314,7 +317,7 @@ func TestAdminMarketCRUDWorkflow(t *testing.T) {
 	// 3. Delete Market
 	wDel := httptest.NewRecorder()
 	reqDel, _ := http.NewRequest(http.MethodDelete, "/api/v1/admin/markets/"+marketID, nil)
-	reqDel.Header.Set("Authorization", "Bearer "+cfg.AdminToken)
+	reqDel.Header.Set("Authorization", "Bearer "+superadminToken)
 	router.ServeHTTP(wDel, reqDel)
 
 	if wDel.Code != http.StatusOK {

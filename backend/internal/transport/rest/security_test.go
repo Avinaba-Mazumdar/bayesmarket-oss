@@ -54,7 +54,6 @@ func TestSecurityHeaders(t *testing.T) {
 		Environment: "production",
 		CORSOrigin:  "https://bayesmarket.com",
 		JWTSecret:   "production-super-secret-key-that-is-at-least-32-chars-long",
-		AdminToken:  "production-admin-token-16chars",
 	}
 	prodRouter := rest.SetupRouter(nil, prodCfg)
 
@@ -75,7 +74,6 @@ func TestCORSOriginHandling(t *testing.T) {
 		Environment: "production",
 		CORSOrigin:  "https://bayesmarket.com,https://app.bayesmarket.com",
 		JWTSecret:   "production-super-secret-key-that-is-at-least-32-chars-long",
-		AdminToken:  "production-admin-token-16chars",
 	}
 	prodRouter := rest.SetupRouter(nil, prodCfg)
 

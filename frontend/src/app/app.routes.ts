@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { adminGuard } from './core/guards/admin.guard';
 
 export const routes: Routes = [
     {
@@ -19,7 +20,8 @@ export const routes: Routes = [
     {
         path: 'admin',
         loadComponent: () => import('./features/admin/admin-dashboard.component').then((m) => m.AdminDashboardComponent),
-        title: 'Superadmin Liquidity & Market Creator — BayesMarket'
+        canActivate: [adminGuard],
+        title: 'Admin Liquidity & Market Creator — BayesMarket'
     },
     {
         path: 'auth/callback',

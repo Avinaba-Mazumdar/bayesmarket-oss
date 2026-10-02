@@ -18,7 +18,6 @@ type Config struct {
 	CORSOrigin           string
 	JWTSecret            string
 	Environment          string
-	AdminToken           string
 	GoogleClientID       string
 	GoogleClientSecret   string
 	GoogleRedirectURI    string
@@ -90,17 +89,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET must be at least 32 characters long in %s environment", env)
 	}
 
-	adminToken := os.Getenv("ADMIN_TOKEN")
-	if adminToken == "" {
-		if isDevOrLocal {
-			adminToken = "bayesmarket-admin-secret-token"
-		} else {
-			return nil, fmt.Errorf("ADMIN_TOKEN environment variable is required in %s environment (minimum 16 characters)", env)
-		}
-	} else if !isDevOrLocal && len(adminToken) < 16 {
-		return nil, fmt.Errorf("ADMIN_TOKEN must be at least 16 characters long in %s environment", env)
-	}
-
 	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	googleClientSecret := os.Getenv("GOOGLE_CLIENT_SECRET")
 	googleRedirectURI := os.Getenv("GOOGLE_REDIRECT_URI")
@@ -125,7 +113,6 @@ func Load() (*Config, error) {
 		CORSOrigin:           strings.TrimSpace(corsOrigin),
 		JWTSecret:            strings.TrimSpace(jwtSecret),
 		Environment:          strings.TrimSpace(env),
-		AdminToken:           strings.TrimSpace(adminToken),
 		GoogleClientID:       strings.TrimSpace(googleClientID),
 		GoogleClientSecret:   strings.TrimSpace(googleClientSecret),
 		GoogleRedirectURI:    strings.TrimSpace(googleRedirectURI),

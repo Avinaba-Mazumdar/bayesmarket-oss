@@ -26,7 +26,7 @@ import { AuthStore } from '../../../state/auth.store';
                         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }" class="nav-tab"> Markets </a>
                         <a routerLink="/portfolio" routerLinkActive="active" class="nav-tab"> Portfolio </a>
                         @if (authStore.isAdmin()) {
-                            <a routerLink="/admin" routerLinkActive="active" class="nav-tab admin-nav-tab" aria-label="Superadmin operations console">
+                            <a routerLink="/admin" routerLinkActive="active" class="nav-tab admin-nav-tab" aria-label="Admin operations console">
                                 <svg lucideShieldCheck class="admin-tab-icon" [size]="14" aria-hidden="true"></svg>
                                 <span>Admin</span>
                             </a>

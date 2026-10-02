@@ -89,6 +89,7 @@ type UserResponse struct {
 	AvatarURL    *string `json:"avatar_url,omitempty"`
 	IsGuest      bool    `json:"is_guest"`
 	IsAdmin      bool    `json:"is_admin"`
+	IsSuperadmin bool    `json:"is_superadmin,omitempty"`
 	AuthProvider string  `json:"auth_provider"`
 	CashBalance  string  `json:"cash_balance"`
 	CreatedAt    string  `json:"created_at"`
@@ -209,6 +210,7 @@ func (h *AuthHandler) HandleGuestAuth(c *gin.Context) {
 		User: UserResponse{
 			ID:           userID.String(),
 			IsGuest:      isGuest,
+			IsSuperadmin: false,
 			IsAdmin:      false,
 			AuthProvider: authProvider,
 			CashBalance:  cashBalance.StringFixed(8),
@@ -325,7 +327,7 @@ func (h *AuthHandler) HandleGoogleAuthVerify(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := h.generateJWT(user.ID, false, user.IsAdmin, email, name, avatarURL, "google")
+	tokenString, err := h.generateJWT(user.ID, false, user.IsSuperadmin, email, name, avatarURL, "google")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
@@ -556,7 +558,7 @@ func (h *AuthHandler) HandleGoogleAuthCallback(c *gin.Context) {
 		return
 	}
 
-	tokenString, err := h.generateJWT(user.ID, false, user.IsAdmin, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture, "google")
+	tokenString, err := h.generateJWT(user.ID, false, user.IsSuperadmin, tokenInfo.Email, tokenInfo.Name, tokenInfo.Picture, "google")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "auth_error",
@@ -607,6 +609,7 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 			AuthProvider: "guest",
 			IsGuest:      true,
 			IsAdmin:      false,
+			IsSuperadmin: false,
 			CashBalance:  "1000.00000000",
 			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
 		})
@@ -643,6 +646,7 @@ func (h *AuthHandler) HandleGetMe(c *gin.Context) {
 		AvatarURL:    avatarURL,
 		IsGuest:      isGuest,
 		IsAdmin:      isAdmin,
+		IsSuperadmin: isAdmin,
 		AuthProvider: authProvider,
 		CashBalance:  cashBalance.StringFixed(8),
 		CreatedAt:    createdAt.Format(time.RFC3339),
@@ -862,6 +866,7 @@ func (h *AuthHandler) upsertGoogleUser(
 			AvatarURL:    &avatarURL,
 			IsGuest:      false,
 			IsAdmin:      false,
+			IsSuperadmin: false,
 			AuthProvider: "google",
 			CashBalance:  "1000.00000000",
 			CreatedAt:    time.Now().UTC().Format(time.RFC3339),
@@ -898,6 +903,7 @@ func (h *AuthHandler) upsertGoogleUser(
 			AvatarURL:    existingAvatar,
 			IsGuest:      false,
 			IsAdmin:      existingIsAdmin,
+			IsSuperadmin: existingIsAdmin,
 			AuthProvider: existingProvider,
 			CashBalance:  existingCashBalance.StringFixed(8),
 			CreatedAt:    existingCreatedAt.Format(time.RFC3339),
@@ -950,6 +956,7 @@ func (h *AuthHandler) upsertGoogleUser(
 				AvatarURL:    &avatarURL,
 				IsGuest:      false,
 				IsAdmin:      upgradedIsAdmin,
+				IsSuperadmin: upgradedIsAdmin,
 				AuthProvider: upgradedProvider,
 				CashBalance:  upgradedBalance.StringFixed(8),
 				CreatedAt:    upgradedCreated.Format(time.RFC3339),
@@ -998,6 +1005,7 @@ func (h *AuthHandler) upsertGoogleUser(
 		AvatarURL:    &avatarURL,
 		IsGuest:      false,
 		IsAdmin:      newIsAdmin,
+		IsSuperadmin: newIsAdmin,
 		AuthProvider: newProvider,
 		CashBalance:  newBalance.StringFixed(8),
 		CreatedAt:    newCreated.Format(time.RFC3339),
@@ -1010,6 +1018,7 @@ func (h *AuthHandler) generateJWT(userID string, isGuest bool, isAdmin bool, ema
 		UserID:       userID,
 		IsGuest:      isGuest,
 		IsAdmin:      isAdmin,
+		IsSuperadmin: isAdmin,
 		Email:        email,
 		Name:         name,
 		AvatarURL:    avatarURL,

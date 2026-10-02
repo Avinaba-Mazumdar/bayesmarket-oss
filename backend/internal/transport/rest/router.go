@@ -159,7 +159,6 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	isDevOrLocal := true
 	corsOrigin := "*"
 	jwtSecret := ""
-	adminToken := ""
 
 	if cfg != nil {
 		isDevOrLocal = cfg.IsDevOrLocal()
@@ -167,7 +166,6 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 			corsOrigin = cfg.CORSOrigin
 		}
 		jwtSecret = cfg.JWTSecret
-		adminToken = cfg.AdminToken
 	}
 
 	if !isDevOrLocal {
@@ -287,8 +285,8 @@ func SetupRouter(pool *pgxpool.Pool, cfg *config.Config, hubOpt ...*ws.Hub) *gin
 	router.HEAD("/healthz", healthHandler)
 	router.HEAD("/health", healthHandler)
 
-	// Prometheus metrics endpoint (requires Admin token/auth)
-	router.GET("/metrics", middleware.RequireAdminAuth(adminToken, jwtSecret, pool), func(c *gin.Context) {
+	// Prometheus metrics endpoint (requires Admin JWT auth)
+	router.GET("/metrics", middleware.RequireAdminAuth(jwtSecret, pool), func(c *gin.Context) {
 		var m runtime.MemStats
 		runtime.ReadMemStats(&m)
 
@@ -383,23 +381,23 @@ bayesmarket_up 1
 		admin.Use(actionLimiter.LimitByIP())
 		{
 			admin.GET("/verify",
-				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				middleware.RequireAdminAuth(jwtSecret, pool),
 				adminHandler.HandleVerifyAdmin,
 			)
 			admin.POST("/markets",
-				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				middleware.RequireAdminAuth(jwtSecret, pool),
 				adminHandler.HandleCreateMarket,
 			)
 			admin.PUT("/markets/:id",
-				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				middleware.RequireAdminAuth(jwtSecret, pool),
 				adminHandler.HandleEditMarket,
 			)
 			admin.DELETE("/markets/:id",
-				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				middleware.RequireAdminAuth(jwtSecret, pool),
 				adminHandler.HandleDeleteMarket,
 			)
 			admin.POST("/markets/:id/resolve",
-				middleware.RequireAdminAuth(adminToken, jwtSecret, pool),
+				middleware.RequireAdminAuth(jwtSecret, pool),
 				adminHandler.HandleResolveMarket,
 			)
 		}

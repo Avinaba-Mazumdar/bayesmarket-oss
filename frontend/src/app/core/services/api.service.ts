@@ -155,17 +155,17 @@ export class ApiService {
     /**
      * Administratively resolve a prediction market and trigger complete-set payout distribution.
      */
-    resolveMarket(marketId: string, request: ResolveMarketRequest, adminToken: string, idempotencyKey: string): Observable<ResolveMarketResponse> {
-        const headers = this.buildHeaders(adminToken, idempotencyKey);
+    resolveMarket(marketId: string, request: ResolveMarketRequest, token?: string | null, idempotencyKey?: string): Observable<ResolveMarketResponse> {
+        const headers = this.buildHeaders(token, idempotencyKey);
         return this.http.post<ResolveMarketResponse>(`${this.baseUrl}/admin/markets/${encodeURIComponent(marketId)}/resolve`, request, { headers });
     }
 
     /**
-     * Verify whether an admin authorization token or admin user session is valid.
+     * Verify whether the current user session is authorized as admin.
      */
-    verifyAdmin(token?: string | null): Observable<{ status: string; message: string }> {
+    verifyAdmin(token?: string | null): Observable<{ status: string; message: string; is_admin?: boolean; is_superadmin?: boolean }> {
         const headers = this.buildHeaders(token);
-        return this.http.get<{ status: string; message: string }>(`${this.baseUrl}/admin/verify`, { headers });
+        return this.http.get<{ status: string; message: string; is_admin?: boolean; is_superadmin?: boolean }>(`${this.baseUrl}/admin/verify`, { headers });
     }
 
     /**

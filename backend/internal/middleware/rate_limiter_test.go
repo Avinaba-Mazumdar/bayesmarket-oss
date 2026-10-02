@@ -66,23 +66,22 @@ func TestRequireAdminAuth_FailedAttemptLimiting(t *testing.T) {
 	middleware.SetAdminFailureLimiterDisabled(false)
 	defer middleware.SetAdminFailureLimiterDisabled(true)
 
-	adminToken := "secret-admin-token-1234"
 	router := gin.New()
-	router.POST("/admin/test", middleware.RequireAdminAuth(adminToken, "jwt-secret"), func(c *gin.Context) {
+	router.POST("/admin/test", middleware.RequireSuperadminAuth("jwt-secret"), func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "admin_granted"})
 	})
 
 	ip := "203.0.113.42:12345"
 
-	// 5 failed attempts with invalid token -> 403 Forbidden
+	// 5 failed attempts with invalid token -> 401 Unauthorized
 	for i := 0; i < 5; i++ {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest(http.MethodPost, "/admin/test", nil)
 		req.Header.Set("Authorization", "Bearer wrong-token")
 		req.RemoteAddr = ip
 		router.ServeHTTP(w, req)
-		if w.Code != http.StatusForbidden {
-			t.Fatalf("Attempt %d: expected 403 Forbidden, got %d", i+1, w.Code)
+		if w.Code != http.StatusUnauthorized {
+			t.Fatalf("Attempt %d: expected 401 Unauthorized, got %d", i+1, w.Code)
 		}
 	}
 
@@ -102,4 +101,3 @@ func TestRequireAdminAuth_FailedAttemptLimiting(t *testing.T) {
 		t.Error("Expected Retry-After header on 429 response")
 	}
 }
-

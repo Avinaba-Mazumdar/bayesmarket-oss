@@ -172,20 +172,13 @@ func (h *AdminHandler) HandleResolveMarket(c *gin.Context) {
 	}
 	proofHash := fmt.Sprintf("%x", sha256.Sum256([]byte(oracleProof)))
 
-	// Determine actor UUID for idempotency registration and ledger audit.
-	// If the request authenticated via static ADMIN_TOKEN without a user JWT, attribute to the
-	// deterministic System Administrator account (never a random user from the users table).
 	actorID, exists := middleware.GetUserID(c)
 	if !exists || actorID == uuid.Nil {
-		actorID = SystemAdminID
-		if h.pool != nil {
-			ensureAdminQuery := `
-				INSERT INTO users (id, is_guest, auth_provider, name, email)
-				VALUES ($1, false, 'system', 'System Administrator', 'admin@bayesmarket.internal')
-				ON CONFLICT (id) DO NOTHING;
-			`
-			_, _ = h.pool.Exec(ctx, ensureAdminQuery, SystemAdminID)
-		}
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "unauthorized",
+			"message": "Superadmin authentication required",
+		})
+		return
 	}
 
 	// Acquire in-process mutex lock to prevent concurrent mutation collisions
@@ -523,9 +516,15 @@ func (h *AdminHandler) executeResolutionTx(
 //
 // GET /api/v1/admin/verify
 func (h *AdminHandler) HandleVerifyAdmin(c *gin.Context) {
+	userID, _ := middleware.GetUserID(c)
+	userEmail, _ := c.Get(middleware.CtxUserEmailKey)
 	c.JSON(http.StatusOK, gin.H{
-		"status":  "authorized",
-		"message": "Admin credential is valid",
+		"status":        "authorized",
+		"message":       "Admin credential is valid",
+		"is_admin":      true,
+		"is_superadmin": true,
+		"user_id":       userID.String(),
+		"email":         userEmail,
 	})
 }
 
