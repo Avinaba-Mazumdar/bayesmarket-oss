@@ -14,7 +14,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
-import { LucideArrowLeft, LucideArrowUp, LucideArrowDown, LucideCheckCircle2 } from '@lucide/angular';
+import { LucideArrowLeft, LucideArrowUp, LucideArrowDown, LucideCircleCheck } from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
 import { WebSocketService } from '../../core/services/websocket.service';
 import { Market, OrderResponse } from '../../core/models/market.model';
@@ -43,7 +43,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
         LucideArrowLeft,
         LucideArrowUp,
         LucideArrowDown,
-        LucideCheckCircle2
+        LucideCircleCheck
     ],
     template: `
         <div class="cockpit-container">
@@ -103,7 +103,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                 @if (isResolved()) {
                     <section class="resolution-celebration-banner" role="alert" aria-live="polite">
                         <div class="banner-badge-icon">
-                            <svg lucideCheckCircle2 [size]="28" aria-hidden="true"></svg>
+                            <svg lucideCircleCheck [size]="28" aria-hidden="true"></svg>
                         </div>
                         <div class="banner-body">
                             <div class="banner-title-row">

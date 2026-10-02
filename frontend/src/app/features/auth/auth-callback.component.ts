@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
-import { LucideAlertCircle, LucideLoader2 } from '@lucide/angular';
+import { LucideCircleAlert, LucideLoaderCircle } from '@lucide/angular';
 import { timeout } from 'rxjs';
 import { AuthStore } from '../../state/auth.store';
 import { ToastService } from '../../shared/components/toast/toast.service';
@@ -11,13 +11,13 @@ import { ButtonComponent } from '../../shared/components/button/button.component
     selector: 'app-auth-callback',
     standalone: true,
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [CommonModule, ButtonComponent, LucideLoader2, LucideAlertCircle],
+    imports: [CommonModule, ButtonComponent, LucideLoaderCircle, LucideCircleAlert],
     template: `
         <div class="callback-container" role="main">
             <div class="callback-card">
                 @if (errorMessage()) {
                     <div class="status-icon error" role="alert">
-                        <svg lucideAlertCircle [size]="48" aria-hidden="true"></svg>
+                        <svg lucideCircleAlert [size]="48" aria-hidden="true"></svg>
                     </div>
                     <h1 class="callback-title">Authentication Failed</h1>
                     <p class="callback-desc">{{ errorMessage() }}</p>
@@ -26,7 +26,7 @@ import { ButtonComponent } from '../../shared/components/button/button.component
                     </div>
                 } @else {
                     <div class="status-icon loading" role="status" aria-live="polite">
-                        <svg lucideLoader2 [size]="48" class="spin" aria-hidden="true"></svg>
+                        <svg lucideLoaderCircle [size]="48" class="spin" aria-hidden="true"></svg>
                     </div>
                     <h1 class="callback-title">Completing Sign-In</h1>
                     <p class="callback-desc">Verifying your Google credentials and securing session...</p>
@@ -145,9 +145,7 @@ export class AuthCallbackComponent implements OnInit {
         }
 
         // Validate state against sessionStorage to guard against CSRF and guest account takeover
-        const savedState = typeof window !== 'undefined' && window.sessionStorage
-            ? sessionStorage.getItem('bayesmarket_oauth_state')
-            : null;
+        const savedState = typeof window !== 'undefined' && window.sessionStorage ? sessionStorage.getItem('bayesmarket_oauth_state') : null;
         if (typeof window !== 'undefined' && window.sessionStorage) {
             sessionStorage.removeItem('bayesmarket_oauth_state');
         }

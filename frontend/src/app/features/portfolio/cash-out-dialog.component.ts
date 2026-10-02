@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, input, model, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { LucideArrowUp, LucideArrowDown, LucideAlertCircle } from '@lucide/angular';
+import { LucideArrowUp, LucideArrowDown, LucideCircleAlert } from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
 import { AuthStore } from '../../state/auth.store';
 import { ToastService } from '../../shared/components/toast/toast.service';
@@ -13,7 +13,7 @@ import { BadgeComponent } from '../../shared/components/badge/badge.component';
     selector: 'app-cash-out-dialog',
     standalone: true,
     changeDetection: ChangeDetectionStrategy.OnPush,
-    imports: [DialogComponent, ButtonComponent, BadgeComponent, LucideArrowUp, LucideArrowDown, LucideAlertCircle],
+    imports: [DialogComponent, ButtonComponent, BadgeComponent, LucideArrowUp, LucideArrowDown, LucideCircleAlert],
     template: `
         <app-dialog
             [open]="isOpen()"
@@ -94,7 +94,7 @@ import { BadgeComponent } from '../../shared/components/badge/badge.component';
                     </div>
 
                     <div class="amm-notice" role="note">
-                        <svg lucideAlertCircle class="notice-glyph" [size]="16" aria-hidden="true"></svg>
+                        <svg lucideCircleAlert class="notice-glyph" [size]="16" aria-hidden="true"></svg>
                         <span> Shares sell atomically into the AMM bonding curve. Proceeds are credited immediately to your USDC balance. </span>
                     </div>
                 </div>

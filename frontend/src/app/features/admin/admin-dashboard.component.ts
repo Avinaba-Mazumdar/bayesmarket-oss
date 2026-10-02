@@ -10,10 +10,10 @@ import {
     LucideInfo,
     LucideArrowUp,
     LucideArrowDown,
-    LucideCheckCircle2,
+    LucideCircleCheck,
     LucidePencil,
-    LucideTrash2,
-    LucideSliders,
+    LucideTrash,
+    LucideSlidersVertical,
     LucideX
 } from '@lucide/angular';
 import { ApiService } from '../../core/services/api.service';
@@ -52,10 +52,10 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
         LucideInfo,
         LucideArrowUp,
         LucideArrowDown,
-        LucideCheckCircle2,
+        LucideCircleCheck,
         LucidePencil,
-        LucideTrash2,
-        LucideSliders
+        LucideTrash,
+        LucideSlidersVertical
     ],
     template: `
         <div class="admin-container" role="main">
@@ -100,7 +100,7 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                     [attr.aria-selected]="activeTab() === 'manage'"
                     (click)="activeTab.set('manage')"
                 >
-                    <svg lucideSliders [size]="16" aria-hidden="true"></svg>
+                    <svg lucideSlidersVertical [size]="16" aria-hidden="true"></svg>
                     <span>Manage Markets ({{ activeMarkets().length }})</span>
                 </button>
 
@@ -124,7 +124,7 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                     [attr.aria-selected]="activeTab() === 'resolve'"
                     (click)="activeTab.set('resolve')"
                 >
-                    <svg lucideCheckCircle2 [size]="16" aria-hidden="true"></svg>
+                    <svg lucideCircleCheck [size]="16" aria-hidden="true"></svg>
                     <span>Resolve Active Market</span>
                 </button>
             </div>
@@ -151,7 +151,7 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                     @if (activeMarkets().length === 0) {
                         <div class="empty-markets-card">
                             <div class="empty-icon-circle">
-                                <svg lucideSliders [size]="32" aria-hidden="true"></svg>
+                                <svg lucideSlidersVertical [size]="32" aria-hidden="true"></svg>
                             </div>
                             <h3 class="empty-title">Zero Markets in Neon Database</h3>
                             <p class="empty-desc">All pre-fed markets have been purged. Use the creation form to deploy your first live prediction market.</p>
@@ -219,7 +219,7 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                                                         (btnClick)="openDeleteModal(m)"
                                                         ariaLabel="Delete market {{ m.title }}"
                                                     >
-                                                        <svg lucideTrash2 [size]="14" aria-hidden="true"></svg>
+                                                        <svg lucideTrash [size]="14" aria-hidden="true"></svg>
                                                         <span>Delete</span>
                                                     </app-button>
                                                 </div>
@@ -354,7 +354,15 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                             </div>
 
                             <div class="form-actions">
-                                <app-button variant="primary" size="lg" [fullWidth]="true" [loading]="isSubmitting()" ariaLabel="Submit new market creation">
+                                <app-button
+                                    type="submit"
+                                    variant="primary"
+                                    size="lg"
+                                    [fullWidth]="true"
+                                    [loading]="isSubmitting()"
+                                    (btnClick)="onSubmitCreateMarket($event)"
+                                    ariaLabel="Submit new market creation"
+                                >
                                     Create Market & Initialize CPMM Pool
                                 </app-button>
                             </div>
@@ -408,7 +416,7 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                         @if (createdMarket(); as cm) {
                             <div class="success-banner" role="status">
                                 <div class="success-header">
-                                    <svg lucideCheckCircle2 class="success-icon" [size]="20" aria-hidden="true"></svg>
+                                    <svg lucideCircleCheck class="success-icon" [size]="20" aria-hidden="true"></svg>
                                     <span class="success-title">Market Successfully Created!</span>
                                 </div>
                                 <p class="success-text">"{{ cm.title }}" is now live on the trading engine.</p>
@@ -639,7 +647,14 @@ import { BrandIconComponent } from '../../shared/components/brand-icon/brand-ico
                             <app-button variant="outline" size="default" type="button" (btnClick)="closeEditModal()" ariaLabel="Cancel editing">
                                 Cancel
                             </app-button>
-                            <app-button variant="primary" size="default" type="submit" [loading]="isEditingSubmitting()" ariaLabel="Save market changes">
+                            <app-button
+                                variant="primary"
+                                size="default"
+                                type="submit"
+                                [loading]="isEditingSubmitting()"
+                                (btnClick)="onSubmitEditMarket($event)"
+                                ariaLabel="Save market changes"
+                            >
                                 Save Changes
                             </app-button>
                         </div>
